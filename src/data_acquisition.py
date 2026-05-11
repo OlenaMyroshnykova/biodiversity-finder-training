@@ -28,9 +28,7 @@ class GBIFQuery:
 
 
 def is_global_country(country: str | None) -> bool:
-    """
-    Comprueba si el parámetro country significa búsqueda global.
-    """
+    """Comprueba si el parámetro country significa búsqueda global."""
     if country is None:
         return True
 
@@ -40,13 +38,6 @@ def is_global_country(country: str | None) -> bool:
 def match_gbif_taxon_key(name: str, rank: str | None = None) -> int | None:
     """
     Busca un taxonKey en GBIF Backbone usando el nombre científico.
-
-    Args:
-        name: Nombre científico o taxonómico.
-        rank: Rango esperado, por ejemplo SPECIES, ORDER, CLASS, FAMILY.
-
-    Returns:
-        usageKey de GBIF si se encuentra, o None.
     """
     params: dict[str, Any] = {"name": name}
 
@@ -100,6 +91,8 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
         "accipitridae": match_gbif_taxon_key("Accipitridae", "FAMILY"),
         "magnoliopsida": match_gbif_taxon_key("Magnoliopsida", "CLASS"),
         "mammalia": match_gbif_taxon_key("Mammalia", "CLASS"),
+        "jaguar": match_gbif_taxon_key("Panthera onca", "SPECIES"),
+        "felidae": match_gbif_taxon_key("Felidae", "FAMILY"),
     }
 
     return [
@@ -107,7 +100,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
             source_query="general_global",
             description="Muestra general global de biodiversidad",
             params=with_common_params({}),
-            share=0.30,
+            share=0.24,
         ),
         GBIFQuery(
             source_query="flamingo_pink_bird",
@@ -118,7 +111,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                     "scientificName": None if taxon_keys["flamingo"] else "Phoenicopterus roseus",
                 }
             ),
-            share=0.08,
+            share=0.07,
         ),
         GBIFQuery(
             source_query="polar_bear",
@@ -127,6 +120,28 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                 {
                     "taxonKey": taxon_keys["polar_bear"],
                     "scientificName": None if taxon_keys["polar_bear"] else "Ursus maritimus",
+                }
+            ),
+            share=0.07,
+        ),
+        GBIFQuery(
+            source_query="jaguar_panthera_onca",
+            description="Jaguar / ягуар: Panthera onca",
+            params=with_common_params(
+                {
+                    "taxonKey": taxon_keys["jaguar"],
+                    "scientificName": None if taxon_keys["jaguar"] else "Panthera onca",
+                }
+            ),
+            share=0.07,
+        ),
+        GBIFQuery(
+            source_query="big_cats_felidae",
+            description="Felinos y grandes gatos: familia Felidae",
+            params=with_common_params(
+                {
+                    "taxonKey": taxon_keys["felidae"],
+                    "scientificName": None if taxon_keys["felidae"] else "Felidae",
                 }
             ),
             share=0.08,
@@ -140,7 +155,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                     "scientificName": None if taxon_keys["lepidoptera"] else "Lepidoptera",
                 }
             ),
-            share=0.14,
+            share=0.12,
         ),
         GBIFQuery(
             source_query="amphibians",
@@ -151,7 +166,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                     "scientificName": None if taxon_keys["amphibia"] else "Amphibia",
                 }
             ),
-            share=0.10,
+            share=0.09,
         ),
         GBIFQuery(
             source_query="raptors_accipitridae",
@@ -162,7 +177,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                     "scientificName": None if taxon_keys["accipitridae"] else "Accipitridae",
                 }
             ),
-            share=0.10,
+            share=0.08,
         ),
         GBIFQuery(
             source_query="flowering_plants",
@@ -173,7 +188,7 @@ def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
                     "scientificName": None if taxon_keys["magnoliopsida"] else "Magnoliopsida",
                 }
             ),
-            share=0.12,
+            share=0.10,
         ),
         GBIFQuery(
             source_query="mammals",
@@ -197,24 +212,6 @@ def download_biodiversity_training_dataset(
 ) -> pd.DataFrame:
     """
     Descarga un dataset global y temático para entrenar Biodiversity Finder.
-
-    El objetivo no es representar un único país, sino cubrir ejemplos útiles
-    para el buscador:
-    - pájaro rosa;
-    - animal polar de hielo;
-    - mariposa;
-    - rana;
-    - ave rapaz;
-    - planta con flor.
-
-    Args:
-        country: GLOBAL para no filtrar por país, o código ISO como ES.
-        max_records: Número máximo total de registros.
-        page_size: Tamaño de página GBIF.
-        pause_seconds: Pequeña pausa para no saturar la API.
-
-    Returns:
-        DataFrame unido con `pd.concat`.
     """
     query_plan = build_global_query_plan(country)
     frames = []
@@ -264,9 +261,6 @@ def download_gbif_occurrences(
 ) -> pd.DataFrame:
     """
     Función compatible con versiones anteriores.
-
-    Si `country` es GLOBAL, descarga dataset multi-source.
-    Si `country` es un país como ES, descarga datos de ese país con una consulta simple.
     """
     if is_global_country(country):
         return download_biodiversity_training_dataset(
@@ -298,16 +292,6 @@ def download_gbif_occurrences_by_params(
 ) -> pd.DataFrame:
     """
     Descarga ocurrencias de GBIF usando parámetros arbitrarios.
-
-    Args:
-        params: Parámetros de occurrence/search.
-        max_records: Máximo de registros para esta consulta.
-        page_size: Tamaño de cada página.
-        source_query: Etiqueta para rastrear el origen.
-        pause_seconds: Pausa entre requests.
-
-    Returns:
-        DataFrame con una columna extra `source_query`.
     """
     all_records: list[dict[str, Any]] = []
     offset = 0
