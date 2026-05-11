@@ -1,75 +1,134 @@
-# Model Dashboard Patch para `biodiversity-finder-training`
+# Global GBIF Multi-source Patch
 
-Este parche añade al repositorio de entrenamiento una aplicación Streamlit separada para visualizar la calidad de la modelo.
+Este parche corrige el problema de que el proyecto estaba demasiado limitado a `country=ES`.
 
-## Qué añade
+El proyecto del enunciado no es "biodiversidad de España", sino un **Buscador Inteligente de Especies** general.  
+Por eso ahora el pipeline puede construir un dataset global y temático.
 
-```text
-model_dashboard.py
-src/dashboard_loader.py
-src/dashboard_charts.py
-src/dashboard_ui.py
-tests/test_dashboard_ui.py
-```
+## Qué cambia
 
-También reemplaza:
+Se reemplazan o añaden estos archivos:
 
 ```text
-requirements.txt
-README_MODEL_DASHBOARD.md
+src/data_acquisition.py
+src/data_snapshots.py
+scripts/run_pipeline.py
+scripts/upload_artifacts.py
+.github/workflows/train_and_publish.yml
+tests/test_data_acquisition.py
+tests/test_data_snapshots.py
 ```
 
-## Qué muestra el dashboard
+## Nueva lógica de descarga
 
-- Accuracy
-- Macro precision
-- Macro recall
-- Macro F1-score
-- Weighted F1-score
-- Gráfico de precision por clase
-- Gráfico de recall por clase
-- Gráfico de F1-score por clase
-- Gráfico de support por clase
-- Tabla completa `classification_report.csv`
-- Interpretación simple de adecuación de la modelo
-
-## Fuente de datos
-
-El dashboard NO lee archivos locales de `reports/`, porque esos archivos están ignorados por Git.
-
-Lee los artefactos publicados en Hugging Face:
+En vez de descargar solo:
 
 ```text
-selenamir/biodiversity-finder-artifacts
+country=ES
 ```
 
-Archivos usados:
+ahora se descargan varios bloques desde GBIF:
 
 ```text
-reports/metrics.json
-reports/classification_report.csv
+general_global
+flamingo_pink_bird
+polar_bear
+butterflies_lepidoptera
+amphibians
+raptors_accipitridae
+flowering_plants
+mammals
 ```
 
-## Cómo ejecutar localmente
+Luego se unen con:
+
+```python
+pd.concat(...)
+```
+
+Esto encaja mejor con el enunciado del proyecto, que menciona explícitamente `pd.concat()`.
+
+## Consultas que deberían mejorar
+
+Después de reentrenar con este patch, la biblioteca debería funcionar mejor con ejemplos como:
+
+```text
+pajaro rosa
+animal polar hielo
+insecto mariposa
+rana verde rio
+ave rapaz montaña
+planta flor
+```
+
+## Columna nueva
+
+El dataset raw tendrá una columna nueva:
+
+```text
+source_query
+```
+
+Sirve para saber de qué bloque vino cada registro:
+
+```text
+general_global
+polar_bear
+butterflies_lepidoptera
+...
+```
+
+## Datos online para practicar
+
+El patch también publica en Hugging Face los datasets completos:
+
+```text
+raw/gbif_occurrences_raw.parquet
+interim/gbif_occurrences_clean.parquet
+processed/gbif_occurrences_features.parquet
+processed/species_encyclopedia.parquet
+```
+
+y muestras pequeñas:
+
+```text
+samples/raw_sample.csv
+samples/clean_sample.csv
+samples/features_sample.csv
+samples/encyclopedia_sample.csv
+samples/data_dictionary.csv
+samples/pipeline_summary.json
+```
+
+## Cómo aplicar
+
+Copia los archivos encima del repositorio:
+
+```text
+C:/Users/Olena/Documents/biodiversity-finder-training
+```
+
+Luego:
 
 ```bash
-pip install -r requirements.txt
 pytest
-streamlit run model_dashboard.py
+git add .
+git commit -m "Add global multi-source GBIF dataset"
+git push
 ```
 
-## Cómo desplegar en Streamlit Cloud
+Después ejecuta GitHub Actions con:
 
 ```text
-Repository: OlenaMyroshnykova/biodiversity-finder-training
-Branch: main
-Main file path: model_dashboard.py
+country: GLOBAL
+max_records: 20000
+min_class_records: 20
 ```
 
-## Después de aplicar el parche
+Cuando funcione, puedes probar:
 
-```bash
-git add .
-git commit -m "Add model evaluation dashboard"
-git push
+```text
+country: GLOBAL
+max_records: 50000
+min_class_records: 20
 ```
