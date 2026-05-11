@@ -5,4 +5,6 @@ requests
 pyarrow
 joblib
 huggingface_hub
+streamlit
+altair
 pytest
