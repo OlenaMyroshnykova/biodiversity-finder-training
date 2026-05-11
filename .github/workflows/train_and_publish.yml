@@ -35,11 +35,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run tests
-        run: pytest
-      - name: Run pipeline
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          python scripts/run_pipeline.py             --country "${{ github.event.inputs.country || 'ES' }}"             --max-records "${{ github.event.inputs.max_records || '5000' }}"             --min-class-records "${{ github.event.inputs.min_class_records || '10' }}"
+          pytest
+
+      - name: Run pipeline
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python scripts/run_pipeline.py \
+            --country "${{ github.event.inputs.country || 'ES' }}" \
+            --max-records "${{ github.event.inputs.max_records || '5000' }}" \
+            --min-class-records "${{ github.event.inputs.min_class_records || '10' }}"
+
       - name: Upload artifacts to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python scripts/upload_artifacts.py
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python scripts/upload_artifacts.py
