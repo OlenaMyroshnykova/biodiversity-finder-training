@@ -88,7 +88,7 @@ def test_build_species_occurrence_points_returns_empty_without_coordinates() -> 
 
 
 def test_build_species_occurrence_points_limits_points_per_species() -> None:
-    """Debe limitar puntos por especie."""
+    """Debe limitar puntos por especie sin perder canonical_scientific_name."""
     df = pd.DataFrame(
         [
             {
@@ -107,4 +107,5 @@ def test_build_species_occurrence_points_limits_points_per_species() -> None:
     )
 
     assert len(points_df) == 3
+    assert "canonical_scientific_name" in points_df.columns
     assert set(points_df["canonical_scientific_name"]) == {"Panthera leo"}

@@ -147,23 +147,29 @@ def limit_points_per_species(
     max_points_per_species: int,
     random_state: int,
 ) -> pd.DataFrame:
-    """Limita el número de puntos por especie."""
+    """Limita el número de puntos por especie sin perder columnas.
+
+    No usamos `groupby.apply()` porque algunas versiones de pandas pueden
+    eliminar la columna de agrupación del resultado.
+    """
     if points_df.empty:
         return points_df
 
     if max_points_per_species <= 0:
         return points_df
 
-    return (
-        points_df
-        .groupby("canonical_scientific_name", group_keys=False)
-        .apply(
-            lambda group: group.sample(
-                n=min(len(group), max_points_per_species),
-                random_state=random_state,
-            )
-        )
+    sampled_df = points_df.sample(
+        frac=1,
+        random_state=random_state,
     )
+
+    limited_df = (
+        sampled_df
+        .groupby("canonical_scientific_name", group_keys=False)
+        .head(max_points_per_species)
+    )
+
+    return limited_df.reset_index(drop=True)
 
 
 def build_empty_occurrence_points() -> pd.DataFrame:
