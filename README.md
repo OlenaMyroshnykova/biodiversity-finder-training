@@ -1,23 +1,27 @@
 # 🌿 Biodiversity Finder Training
 
-Pipeline de datos y Machine Learning para el proyecto **Biodiversity Finder / Buscador Inteligente de Especies**.
+Training pipeline for **Biodiversity Finder**, an intelligent species search and biodiversity encyclopedia project.
 
-Este repositorio prepara los datos que después usa la app interactiva:
-
-🔎 App pública:  
-https://github.com/OlenaMyroshnykova/biodiversity-finder-app
-
-📊 Dashboard del modelo:  
-https://biodiversity-finder-training.streamlit.app/
-
-📦 Artefactos publicados en Hugging Face:  
-https://huggingface.co/datasets/selenamir/biodiversity-finder-artifacts
+This repository contains the data science and machine learning pipeline used to collect biodiversity data, clean and enrich it, train a classification model, build a species encyclopedia, and publish the generated artifacts for the Streamlit application.
 
 ---
 
-## 👩‍💻 Equipo
+## 🔗 Related Links
 
-Proyecto realizado por:
+- **Interactive app repository:**  
+  https://github.com/OlenaMyroshnykova/biodiversity-finder-app
+
+- **Model dashboard:**  
+  https://biodiversity-finder-training.streamlit.app/
+
+- **Published artifacts on Hugging Face:**  
+  https://huggingface.co/datasets/selenamir/biodiversity-finder-artifacts
+
+---
+
+## 👩‍💻 Contributors
+
+This project was developed by:
 
 - **Olena Myroshnykova**
 - **Nana Torres Gonzalez**
@@ -26,257 +30,66 @@ Proyecto realizado por:
 
 ---
 
-## 🎯 Objetivo del proyecto
+## 📌 Project Overview
 
-El objetivo es construir una **enciclopedia inteligente interactiva de biodiversidad**.
+**Biodiversity Finder Training** prepares the datasets and machine learning artifacts used by the public Biodiversity Finder app.
 
-La idea principal es que una persona pueda escribir una descripción o un nombre común de una especie, por ejemplo:
+The pipeline works with real biodiversity data and produces an enriched species encyclopedia that can be searched by scientific names, taxonomy, common names, and multilingual descriptions.
 
-```text
-león
-lion
-leão
-jaguar
-mariposa
-ave rosa
-oso polar
-```
+The project uses:
 
-y la app pueda buscar especies reales usando datos enriquecidos.
+- biodiversity occurrence data from **GBIF**;
+- taxonomic and geographic data cleaning;
+- climate enrichment using **NASA POWER API**;
+- common name enrichment using **GBIF Species API** and **Wikidata**;
+- a machine learning model for taxonomic classification;
+- Hugging Face as a public artifact storage.
 
 ---
 
-## 📌 Relación con el enunciado del proyecto
+## ✨ Main Features
 
-El enunciado pedía trabajar con bases de datos masivas sobre especies animales o plantas y aplicar:
-
-| Requisito | Dónde está en el proyecto |
-|---|---|
-| `pd.concat()` | En la descarga multi-source desde GBIF y en la unión de fuentes de nombres comunes |
-| `df.merge()` | En la unión de datos taxonómicos con datos climáticos y nombres comunes |
-| `df[condición]` | En los filtros de la app interactiva |
-| Enciclopedia inteligente | En `species_encyclopedia.parquet`, consumida por la app |
-
----
-
-## 🧠 Qué hace este repositorio
-
-Este repositorio no es la app final.  
-Este repositorio es la parte de **Data Science / Training**.
-
-Hace estas tareas:
-
-1. Descarga datos reales desde **GBIF**.
-2. Combina varias consultas de especies con `pd.concat()`.
-3. Limpia registros incompletos.
-4. Crea variables taxonómicas, geográficas y temporales.
-5. Enriquece los datos con clima usando **NASA POWER API**.
-6. Une datos climáticos con `df.merge()`.
-7. Entrena un modelo de Machine Learning.
-8. Construye una enciclopedia de especies.
-9. Enriquece la enciclopedia con nombres comunes usando:
-   - GBIF Species API
-   - Wikidata P1843 / taxon common name
-   - Wikidata labels
-   - Wikidata aliases
-10. Publica artefactos en Hugging Face para que la app pueda usarlos.
+- Download biodiversity records from GBIF.
+- Combine multiple biodiversity queries into a single dataset.
+- Clean and validate occurrence records.
+- Generate taxonomic, geographic, temporal, and climate features.
+- Enrich records with climate data.
+- Train a machine learning classifier.
+- Build an intelligent species encyclopedia.
+- Enrich species with common names from external sources.
+- Publish datasets, reports, and model artifacts to Hugging Face.
+- Provide a Streamlit dashboard for model and data inspection.
 
 ---
 
-## 🔄 Evolución de la lógica del proyecto
+## 🧠 What This Repository Produces
 
-### 1. Primera idea: buscar solo por datos científicos
-
-Al principio la app buscaba principalmente por:
+The pipeline generates the following main artifacts:
 
 ```text
-scientific_name
-kingdom
-family
-genus
-taxon_class
-```
-
-Esto funcionaba para nombres científicos como:
-
-```text
-Panthera leo
-Panthera onca
-Ursus maritimus
-```
-
-Pero no funcionaba bien para nombres humanos como:
-
-```text
-león
-lion
-лев
-jaguar
-oso polar
-```
-
----
-
-### 2. Segunda idea: añadir reglas manuales en la app
-
-Probamos reglas como:
-
-```text
-jaguar → Panthera
-leopardo → Panthera
-oso → Ursus
-mariposa → Lepidoptera
-```
-
-Esta idea parecía funcionar rápido, pero era incorrecta como solución general.
-
-¿Por qué?
-
-Porque la app empezaba a convertirse en un diccionario manual de animales.
-
-Eso no escala:
-
-```text
-hoy añadimos león
-mañana tigre
-después zorro
-después búho
-después miles de especies más
-```
-
-Conclusión:
-
-> Los nombres comunes no deben vivir como reglas manuales en la app.  
-> Deben vivir en los datos.
-
----
-
-### 3. Tercera idea: enriquecer los datos con nombres comunes
-
-La solución correcta fue mover esa inteligencia al pipeline de datos.
-
-Ahora el training repo genera una columna:
-
-```text
-vernacular_names
-```
-
-con nombres comunes en varios idiomas cuando las fuentes externas los proporcionan.
-
-Ejemplo esperado:
-
-```text
-Panthera leo
-↓
-Lion | León | Лев | Leão | Leone
-```
-
-Así la app no necesita saber manualmente qué es un león.
-
-La app solo busca en la enciclopedia enriquecida.
-
----
-
-## 🌍 Fuentes de datos
-
-### GBIF Occurrence API
-
-Fuente principal de observaciones de biodiversidad.
-
-Se usa para obtener registros reales de especies, con datos como:
-
-```text
-scientificName
-kingdom
-phylum
-class
-order
-family
-genus
-species
-countryCode
-decimalLatitude
-decimalLongitude
-eventDate
-media
-```
-
----
-
-### GBIF Species API
-
-Se usa para buscar nombres comunes oficiales cuando GBIF los tiene:
-
-```text
-vernacularNames
-```
-
----
-
-### Wikidata
-
-Se usa como fuente complementaria de nombres humanos.
-
-El pipeline consulta:
-
-```text
-P1843 - taxon common name
-labels
-aliases
-```
-
-Esto mejora la búsqueda multilingüe.
-
----
-
-### NASA POWER API
-
-Se usa para enriquecer las coordenadas con datos climáticos aproximados:
-
-```text
-temperature
-precipitation
-humidity
-```
-
----
-
-## 🧩 Arquitectura del pipeline
-
-```text
-GBIF Occurrence API
-        ↓
 data/raw/gbif_occurrences_raw.parquet
-        ↓
-clean_occurrences()
-        ↓
 data/interim/gbif_occurrences_clean.parquet
-        ↓
-create_features()
-        ↓
-add_climate_features()
-        ↓
+data/interim/climate_reference.csv
+data/interim/vernacular_names.csv
 data/processed/gbif_occurrences_features.parquet
-        ↓
-train_model()
-        ↓
+data/processed/species_encyclopedia.parquet
 models/taxon_classifier.joblib
 reports/metrics.json
-        ↓
-build_species_encyclopedia()
-        ↓
-add_vernacular_names_to_encyclopedia()
-        ↓
-data/processed/species_encyclopedia.parquet
-        ↓
-Hugging Face Dataset
-        ↓
-Streamlit App
+reports/classification_report.csv
+reports/data_samples/
 ```
+
+The most important artifact for the public app is:
+
+```text
+data/processed/species_encyclopedia.parquet
+```
+
+It contains one row per species with taxonomy, observations, geographic information, profile text, search text, and common names.
 
 ---
 
-## 📁 Estructura del repositorio
+## 🏗️ Repository Structure
 
 ```text
 .github/workflows/
@@ -313,9 +126,13 @@ src/
 
 tests/
   test_climate_enrichment.py
+  test_dashboard_ui.py
   test_data_acquisition.py
   test_data_cleaning.py
+  test_data_snapshots.py
   test_feature_engineering.py
+  test_intelligent_search_document.py
+  test_jaguar_query_plan.py
   test_model_training.py
   test_vernacular_names.py
 
@@ -327,152 +144,117 @@ README.md
 
 ---
 
-## 🔎 Dónde mirar el código según el enunciado
+## ⚙️ Tech Stack
 
-### `pd.concat()`
+- **Python**
+- **Pandas**
+- **Scikit-learn**
+- **Requests**
+- **Joblib**
+- **PyArrow**
+- **Streamlit**
+- **Hugging Face Hub**
+- **GitHub Actions**
 
-Archivo:
+---
+
+## 🌍 Data Sources
+
+### GBIF Occurrence API
+
+Used to download real biodiversity occurrence records.
+
+Typical fields include:
 
 ```text
-src/data_acquisition.py
+scientificName
+kingdom
+phylum
+class
+order
+family
+genus
+species
+countryCode
+decimalLatitude
+decimalLongitude
+eventDate
+media
 ```
 
-Se usa para unir varias consultas de GBIF en un solo dataset.
+### GBIF Species API
 
-También se usa en:
+Used to collect available common names for species.
+
+### Wikidata
+
+Used as an additional source of multilingual common names, labels, and aliases.
+
+### NASA POWER API
+
+Used to enrich geographic coordinates with climate-related variables.
+
+---
+
+## 🔄 Pipeline Workflow
 
 ```text
-src/vernacular_names.py
-```
-
-para combinar nombres comunes desde varias fuentes:
-
-```text
-GBIF Species API
-Wikidata
-scientific_name fallback
+GBIF occurrence data
+        ↓
+Raw dataset
+        ↓
+Data cleaning
+        ↓
+Feature engineering
+        ↓
+Climate enrichment
+        ↓
+Model training
+        ↓
+Species encyclopedia generation
+        ↓
+Common name enrichment
+        ↓
+Artifact publication on Hugging Face
+        ↓
+Streamlit app consumption
 ```
 
 ---
 
-### `df.merge()`
+## 🚀 Local Setup
 
-Archivo:
+Clone the repository:
 
-```text
-src/climate_enrichment.py
+```bash
+git clone https://github.com/OlenaMyroshnykova/biodiversity-finder-training.git
+cd biodiversity-finder-training
 ```
 
-Se usa para unir los datos de especies con los datos climáticos.
-
-Archivo:
-
-```text
-src/vernacular_names.py
-```
-
-Se usa para unir la enciclopedia con los nombres comunes.
-
----
-
-### `df[condición]`
-
-Está principalmente en la app:
-
-```text
-biodiversity-finder-app
-```
-
-Se usa para filtrar especies según:
-
-```text
-número mínimo de observaciones
-clase taxonómica
-texto de búsqueda
-```
-
----
-
-### Machine Learning
-
-Archivo:
-
-```text
-src/model_training.py
-```
-
-Entrena un modelo para clasificar registros por clase taxonómica.
-
----
-
-### Enciclopedia inteligente
-
-Archivo:
-
-```text
-src/encyclopedia.py
-```
-
-Construye una fila por especie.
-
-Archivo:
-
-```text
-src/vernacular_names.py
-```
-
-Añade nombres comunes para que la búsqueda sea más humana y multilingüe.
-
----
-
-## 📦 Artefactos generados
-
-El pipeline genera:
-
-```text
-data/raw/gbif_occurrences_raw.parquet
-data/interim/gbif_occurrences_clean.parquet
-data/interim/climate_reference.csv
-data/interim/vernacular_names.csv
-data/processed/gbif_occurrences_features.parquet
-data/processed/species_encyclopedia.parquet
-models/taxon_classifier.joblib
-reports/metrics.json
-reports/classification_report.csv
-reports/data_samples/*.csv
-```
-
-Los artefactos importantes para la app son:
-
-```text
-processed/species_encyclopedia.parquet
-reports/metrics.json
-```
-
----
-
-## 🚀 Ejecución local
-
-Crear entorno virtual:
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 source .venv/Scripts/activate
 ```
 
-Instalar dependencias:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Ejecutar tests:
+Run tests:
 
 ```bash
 pytest
 ```
 
-Ejecutar pipeline pequeño:
+---
+
+## ▶️ Running the Pipeline Locally
+
+Small local run:
 
 ```bash
 python scripts/run_pipeline.py \
@@ -483,7 +265,7 @@ python scripts/run_pipeline.py \
   --max-vernacular-species 300
 ```
 
-Ejecutar pipeline grande recomendado:
+Recommended larger run:
 
 ```bash
 python scripts/run_pipeline.py \
@@ -494,23 +276,127 @@ python scripts/run_pipeline.py \
   --max-vernacular-species 3000
 ```
 
+Optional flags:
+
+```bash
+--skip-climate-api
+--skip-vernacular-api
+--skip-wikidata
+```
+
 ---
 
-## ⚙️ GitHub Actions
+## 📊 Model Dashboard
 
-El workflow principal es:
+The repository includes a Streamlit dashboard for inspecting model results and generated artifacts.
+
+Run locally:
+
+```bash
+streamlit run model_dashboard.py
+```
+
+Public dashboard:
+
+```text
+https://biodiversity-finder-training.streamlit.app/
+```
+
+The dashboard includes:
+
+- model accuracy;
+- classification report;
+- generated artifact overview;
+- sample datasets;
+- data quality information.
+
+---
+
+## 🤖 Machine Learning
+
+The model is trained in:
+
+```text
+src/model_training.py
+```
+
+It uses engineered features to classify biodiversity records by taxonomic class.
+
+The generated model is saved as:
+
+```text
+models/taxon_classifier.joblib
+```
+
+Model metrics are saved in:
+
+```text
+reports/metrics.json
+reports/classification_report.csv
+```
+
+---
+
+## 🔎 Species Encyclopedia
+
+The species encyclopedia is built in:
+
+```text
+src/encyclopedia.py
+```
+
+and enriched with common names in:
+
+```text
+src/vernacular_names.py
+```
+
+The final encyclopedia is saved as:
+
+```text
+data/processed/species_encyclopedia.parquet
+```
+
+This file is used by the public Streamlit app to search and display species.
+
+---
+
+## 🧪 Testing
+
+Run all tests:
+
+```bash
+pytest
+```
+
+The test suite checks:
+
+- data acquisition logic;
+- data cleaning;
+- feature engineering;
+- climate enrichment;
+- common name enrichment;
+- search document generation;
+- model training;
+- dashboard helpers.
+
+---
+
+## 🚢 GitHub Actions
+
+The training workflow is located at:
 
 ```text
 .github/workflows/train_and_publish.yml
 ```
 
-Se ejecuta manualmente desde:
+It is designed to be executed manually from GitHub Actions:
 
 ```text
 Actions → Train and publish biodiversity artifacts → Run workflow
 ```
 
-Parámetros recomendados:
+Recommended parameters:
 
 ```text
 country: GLOBAL
@@ -525,9 +411,9 @@ skip_wikidata: false
 
 ---
 
-## 🔐 Secret necesario
+## 🔐 Required Secrets
 
-Para subir artefactos a Hugging Face, GitHub Actions necesita el secret:
+To publish artifacts to Hugging Face, the repository requires the following GitHub secret:
 
 ```text
 HF_TOKEN
@@ -535,100 +421,37 @@ HF_TOKEN
 
 ---
 
-## 📊 Dashboard del modelo
+## 📦 Artifact Publication
 
-El dashboard permite revisar:
+Artifacts are uploaded to the Hugging Face dataset repository:
 
 ```text
-accuracy
-classification report
-distribución de clases
-muestras de datos
-artefactos generados
+selenamir/biodiversity-finder-artifacts
 ```
 
-Archivo:
+The upload script is:
 
 ```text
-model_dashboard.py
-```
-
-App publicada:
-
-```text
-https://biodiversity-finder-training.streamlit.app/
+scripts/upload_artifacts.py
 ```
 
 ---
 
-## 🧪 Tests
+## 📝 License
 
-Ejecutar:
-
-```bash
-pytest
-```
-
-Los tests verifican:
-
-```text
-descarga y planificación de consultas GBIF
-limpieza de datos
-feature engineering
-enriquecimiento climático
-nombres comunes desde GBIF + Wikidata
-documento de búsqueda inteligente
-entrenamiento del modelo
-dashboard
-```
+This project is intended for educational purposes.
 
 ---
 
-## 🧠 Explicación simple para la presentación
+## 🌱 Project Status
 
-Este proyecto tiene dos partes:
+The repository currently supports:
 
-1. **Training repo**  
-   Prepara los datos, entrena el modelo y genera la enciclopedia.
-
-2. **App repo**  
-   Usa la enciclopedia para que el usuario pueda buscar especies.
-
-La parte más importante fue entender que la app no debe tener reglas manuales como:
-
-```text
-si escriben "león", busca "Panthera leo"
-```
-
-Eso sería un parche.
-
-La solución correcta es enriquecer los datos con nombres comunes desde fuentes externas.  
-Así la app puede buscar de forma más natural y multilingüe.
-
----
-
-## 🧭 Convenciones del proyecto
-
-- Variables, funciones y archivos: inglés.
-- Comentarios, docstrings y documentación: español.
-- README y explicación para el equipo: español.
-- Datos grandes y modelos: se publican en Hugging Face, no se guardan manualmente en GitHub.
-- La app debe ser genérica.
-- Los nombres de especies deben venir de los datos, no de reglas manuales en la app.
-
----
-
-## ✅ Estado actual
-
-El proyecto actualmente incluye:
-
-```text
-pipeline global multi-source desde GBIF
-climate enrichment con NASA POWER API
-vernacular names desde GBIF Species API + Wikidata
-modelo ML
-enciclopedia inteligente
-publicación en Hugging Face
-dashboard de métricas
-GitHub Actions manual con parámetros
-```
+- global GBIF data collection;
+- multi-source biodiversity queries;
+- climate enrichment;
+- multilingual common name enrichment;
+- machine learning training;
+- species encyclopedia generation;
+- Hugging Face artifact publishing;
+- Streamlit model dashboard.
