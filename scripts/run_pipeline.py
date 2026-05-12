@@ -21,12 +21,16 @@ from src.config import (  # noqa: E402
     REPORTS_DIR,
     METRICS_PATH,
 )
+from src.climate_enrichment import add_climate_features  # noqa: E402
 from src.data_acquisition import download_biodiversity_training_dataset  # noqa: E402
 from src.data_cleaning import clean_occurrences  # noqa: E402
 from src.data_snapshots import save_pipeline_snapshots  # noqa: E402
 from src.encyclopedia import build_species_encyclopedia  # noqa: E402
 from src.feature_engineering import create_features  # noqa: E402
 from src.model_training import train_model  # noqa: E402
+
+
+CLIMATE_REFERENCE_PATH = PROJECT_ROOT / "data" / "interim" / "climate_reference.csv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,12 +46,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-records", type=int, default=DEFAULT_MAX_RECORDS)
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE)
     parser.add_argument("--min-class-records", type=int, default=20)
+    parser.add_argument(
+        "--max-climate-points",
+        type=int,
+        default=250,
+        help="Máximo de coordenadas únicas consultadas a NASA POWER.",
+    )
+    parser.add_argument(
+        "--skip-climate-api",
+        action="store_true",
+        help="Usa solo estimación climática por latitud, sin llamar a NASA POWER.",
+    )
 
     return parser.parse_args()
 
 
 def main() -> None:
-    """Ejecuta descarga, limpieza, features, entrenamiento y enciclopedia."""
+    """Ejecuta descarga, limpieza, features, clima, modelo y enciclopedia."""
     args = parse_args()
 
     parameters = {
@@ -56,11 +71,13 @@ def main() -> None:
         "page_size": args.page_size,
         "min_class_records": args.min_class_records,
         "download_strategy": "global_multi_source_gbif",
+        "climate_source": "NASA POWER API + latitude fallback",
+        "max_climate_points": args.max_climate_points,
     }
 
     print("Pipeline parameters:", parameters, flush=True)
 
-    print("1/6 Descargando dataset global multi-source desde GBIF...", flush=True)
+    print("1/7 Descargando dataset global multi-source desde GBIF...", flush=True)
     raw_df = download_biodiversity_training_dataset(
         country=args.country,
         max_records=args.max_records,
@@ -72,7 +89,7 @@ def main() -> None:
     print(f"   Source queries: {raw_df['source_query'].nunique() if 'source_query' in raw_df.columns else 0}", flush=True)
     print(f"   Guardado raw parquet: {RAW_OCCURRENCES_PATH}", flush=True)
 
-    print("2/6 Limpiando datos...", flush=True)
+    print("2/7 Limpiando datos...", flush=True)
     clean_df = clean_occurrences(
         raw_df,
         min_class_records=args.min_class_records,
@@ -82,14 +99,26 @@ def main() -> None:
     print(f"   Registros limpios: {len(clean_df):,}", flush=True)
     print(f"   Guardado clean parquet: {CLEAN_OCCURRENCES_PATH}", flush=True)
 
-    print("3/6 Creando features...", flush=True)
+    print("3/7 Creando features taxonómicas...", flush=True)
     features_df = create_features(clean_df)
+    print(f"   Registros con features base: {len(features_df):,}", flush=True)
+
+    print("4/7 Enriqueciendo con clima usando df.merge()...", flush=True)
+    features_df, climate_reference_df = add_climate_features(
+        features_df,
+        coordinate_precision=0,
+        max_api_points=args.max_climate_points,
+        use_api=not args.skip_climate_api,
+    )
+    CLIMATE_REFERENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    climate_reference_df.to_csv(CLIMATE_REFERENCE_PATH, index=False)
     FEATURES_PATH.parent.mkdir(parents=True, exist_ok=True)
     features_df.to_parquet(FEATURES_PATH, index=False)
-    print(f"   Registros con features: {len(features_df):,}", flush=True)
-    print(f"   Guardado features parquet: {FEATURES_PATH}", flush=True)
+    print(f"   Puntos climáticos: {len(climate_reference_df):,}", flush=True)
+    print(f"   Guardado climate reference: {CLIMATE_REFERENCE_PATH}", flush=True)
+    print(f"   Guardado features enriquecidas: {FEATURES_PATH}", flush=True)
 
-    print("4/6 Entrenando modelo ML...", flush=True)
+    print("5/7 Entrenando modelo ML...", flush=True)
     metrics = train_model(
         features_df=features_df,
         model_path=MODEL_PATH,
@@ -101,14 +130,14 @@ def main() -> None:
     print(f"   Guardado metrics: {METRICS_PATH}", flush=True)
     print(f"   Guardado classification report: {CLASSIFICATION_REPORT_PATH}", flush=True)
 
-    print("5/6 Construyendo enciclopedia...", flush=True)
+    print("6/7 Construyendo enciclopedia...", flush=True)
     encyclopedia_df = build_species_encyclopedia(features_df)
     ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
     encyclopedia_df.to_parquet(ENCYCLOPEDIA_PATH, index=False)
     print(f"   Especies en enciclopedia: {len(encyclopedia_df):,}", flush=True)
     print(f"   Guardado encyclopedia parquet: {ENCYCLOPEDIA_PATH}", flush=True)
 
-    print("6/6 Guardando muestras inspeccionables...", flush=True)
+    print("7/7 Guardando muestras inspeccionables...", flush=True)
     snapshot_files = save_pipeline_snapshots(
         raw_df=raw_df,
         clean_df=clean_df,
@@ -118,6 +147,10 @@ def main() -> None:
         parameters=parameters,
         sample_size=100,
     )
+
+    climate_sample_path = REPORTS_DIR / "data_samples" / "climate_reference_sample.csv"
+    climate_reference_df.head(100).to_csv(climate_sample_path, index=False)
+    snapshot_files["climate_reference_sample"] = climate_sample_path
 
     for name, path in snapshot_files.items():
         print(f"   Sample {name}: {path}", flush=True)

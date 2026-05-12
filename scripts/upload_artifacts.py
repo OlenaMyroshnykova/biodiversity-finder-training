@@ -13,62 +13,25 @@ REPO_TYPE = "dataset"
 
 FILES_TO_UPLOAD = [
     # Datos completos para práctica
-    (
-        "data/raw/gbif_occurrences_raw.parquet",
-        "raw/gbif_occurrences_raw.parquet",
-    ),
-    (
-        "data/interim/gbif_occurrences_clean.parquet",
-        "interim/gbif_occurrences_clean.parquet",
-    ),
-    (
-        "data/processed/gbif_occurrences_features.parquet",
-        "processed/gbif_occurrences_features.parquet",
-    ),
-    (
-        "data/processed/species_encyclopedia.parquet",
-        "processed/species_encyclopedia.parquet",
-    ),
+    ("data/raw/gbif_occurrences_raw.parquet", "raw/gbif_occurrences_raw.parquet"),
+    ("data/interim/gbif_occurrences_clean.parquet", "interim/gbif_occurrences_clean.parquet"),
+    ("data/interim/climate_reference.csv", "interim/climate_reference.csv"),
+    ("data/processed/gbif_occurrences_features.parquet", "processed/gbif_occurrences_features.parquet"),
+    ("data/processed/species_encyclopedia.parquet", "processed/species_encyclopedia.parquet"),
 
     # Modelo y reportes
-    (
-        "models/taxon_classifier.joblib",
-        "models/taxon_classifier.joblib",
-    ),
-    (
-        "reports/metrics.json",
-        "reports/metrics.json",
-    ),
-    (
-        "reports/classification_report.csv",
-        "reports/classification_report.csv",
-    ),
+    ("models/taxon_classifier.joblib", "models/taxon_classifier.joblib"),
+    ("reports/metrics.json", "reports/metrics.json"),
+    ("reports/classification_report.csv", "reports/classification_report.csv"),
 
     # Muestras pequeñas inspeccionables
-    (
-        "reports/data_samples/raw_sample.csv",
-        "samples/raw_sample.csv",
-    ),
-    (
-        "reports/data_samples/clean_sample.csv",
-        "samples/clean_sample.csv",
-    ),
-    (
-        "reports/data_samples/features_sample.csv",
-        "samples/features_sample.csv",
-    ),
-    (
-        "reports/data_samples/encyclopedia_sample.csv",
-        "samples/encyclopedia_sample.csv",
-    ),
-    (
-        "reports/data_samples/data_dictionary.csv",
-        "samples/data_dictionary.csv",
-    ),
-    (
-        "reports/data_samples/pipeline_summary.json",
-        "samples/pipeline_summary.json",
-    ),
+    ("reports/data_samples/raw_sample.csv", "samples/raw_sample.csv"),
+    ("reports/data_samples/clean_sample.csv", "samples/clean_sample.csv"),
+    ("reports/data_samples/features_sample.csv", "samples/features_sample.csv"),
+    ("reports/data_samples/encyclopedia_sample.csv", "samples/encyclopedia_sample.csv"),
+    ("reports/data_samples/climate_reference_sample.csv", "samples/climate_reference_sample.csv"),
+    ("reports/data_samples/data_dictionary.csv", "samples/data_dictionary.csv"),
+    ("reports/data_samples/pipeline_summary.json", "samples/pipeline_summary.json"),
 ]
 
 
