@@ -60,10 +60,6 @@ on:
           - "false"
           - "true"
 
-  push:
-    branches:
-      - main
-
 jobs:
   train-and-publish:
     runs-on: ubuntu-latest
@@ -105,53 +101,29 @@ jobs:
         run: |
           python -m pytest
 
-      - name: Resolve workflow parameters
-        id: params
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "country=${{ github.event.inputs.country }}" >> "$GITHUB_OUTPUT"
-            echo "max_records=${{ github.event.inputs.max_records }}" >> "$GITHUB_OUTPUT"
-            echo "min_class_records=${{ github.event.inputs.min_class_records }}" >> "$GITHUB_OUTPUT"
-            echo "max_climate_points=${{ github.event.inputs.max_climate_points }}" >> "$GITHUB_OUTPUT"
-            echo "max_vernacular_species=${{ github.event.inputs.max_vernacular_species }}" >> "$GITHUB_OUTPUT"
-            echo "skip_climate_api=${{ github.event.inputs.skip_climate_api }}" >> "$GITHUB_OUTPUT"
-            echo "skip_vernacular_api=${{ github.event.inputs.skip_vernacular_api }}" >> "$GITHUB_OUTPUT"
-            echo "skip_wikidata=${{ github.event.inputs.skip_wikidata }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "country=GLOBAL" >> "$GITHUB_OUTPUT"
-            echo "max_records=20000" >> "$GITHUB_OUTPUT"
-            echo "min_class_records=20" >> "$GITHUB_OUTPUT"
-            echo "max_climate_points=250" >> "$GITHUB_OUTPUT"
-            echo "max_vernacular_species=1200" >> "$GITHUB_OUTPUT"
-            echo "skip_climate_api=false" >> "$GITHUB_OUTPUT"
-            echo "skip_vernacular_api=false" >> "$GITHUB_OUTPUT"
-            echo "skip_wikidata=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Run training pipeline
         shell: bash
         run: |
           EXTRA_ARGS=""
 
-          if [ "${{ steps.params.outputs.skip_climate_api }}" = "true" ]; then
+          if [ "${{ github.event.inputs.skip_climate_api }}" = "true" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --skip-climate-api"
           fi
 
-          if [ "${{ steps.params.outputs.skip_vernacular_api }}" = "true" ]; then
+          if [ "${{ github.event.inputs.skip_vernacular_api }}" = "true" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --skip-vernacular-api"
           fi
 
-          if [ "${{ steps.params.outputs.skip_wikidata }}" = "true" ]; then
+          if [ "${{ github.event.inputs.skip_wikidata }}" = "true" ]; then
             EXTRA_ARGS="$EXTRA_ARGS --skip-wikidata"
           fi
 
           python scripts/run_pipeline.py \
-            --country "${{ steps.params.outputs.country }}" \
-            --max-records "${{ steps.params.outputs.max_records }}" \
-            --min-class-records "${{ steps.params.outputs.min_class_records }}" \
-            --max-climate-points "${{ steps.params.outputs.max_climate_points }}" \
-            --max-vernacular-species "${{ steps.params.outputs.max_vernacular_species }}" \
+            --country "${{ github.event.inputs.country }}" \
+            --max-records "${{ github.event.inputs.max_records }}" \
+            --min-class-records "${{ github.event.inputs.min_class_records }}" \
+            --max-climate-points "${{ github.event.inputs.max_climate_points }}" \
+            --max-vernacular-species "${{ github.event.inputs.max_vernacular_species }}" \
             $EXTRA_ARGS
 
       - name: Upload artifacts to Hugging Face
