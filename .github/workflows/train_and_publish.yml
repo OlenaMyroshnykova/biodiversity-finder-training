@@ -69,9 +69,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
+    env:
+      PYTHONPATH: .
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Show repository structure
+        run: |
+          pwd
+          ls -la
+          ls -la src || true
+          ls -la tests || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,7 +103,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest
+          python -m pytest
 
       - name: Resolve workflow parameters
         id: params
