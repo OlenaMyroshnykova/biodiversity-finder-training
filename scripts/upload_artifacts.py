@@ -17,8 +17,12 @@ FILES_TO_UPLOAD = [
     ("data/interim/gbif_occurrences_clean.parquet", "interim/gbif_occurrences_clean.parquet"),
     ("data/interim/climate_reference.csv", "interim/climate_reference.csv"),
     ("data/interim/vernacular_names.csv", "interim/vernacular_names.csv"),
+    ("data/interim/conservation_status.csv", "interim/conservation_status.csv"),
     ("data/processed/gbif_occurrences_features.parquet", "processed/gbif_occurrences_features.parquet"),
     ("data/processed/species_encyclopedia.parquet", "processed/species_encyclopedia.parquet"),
+    ("data/processed/species_occurrence_points.parquet", "processed/species_occurrence_points.parquet"),
+    ("data/processed/species_encyclopedia_light.parquet", "processed/species_encyclopedia_light.parquet"),
+    ("data/processed/species_occurrence_points_light.parquet", "processed/species_occurrence_points_light.parquet"),
 
     # Modelo y reportes
     ("models/taxon_classifier.joblib", "models/taxon_classifier.joblib"),
@@ -32,8 +36,17 @@ FILES_TO_UPLOAD = [
     ("reports/data_samples/encyclopedia_sample.csv", "samples/encyclopedia_sample.csv"),
     ("reports/data_samples/climate_reference_sample.csv", "samples/climate_reference_sample.csv"),
     ("reports/data_samples/vernacular_names_sample.csv", "samples/vernacular_names_sample.csv"),
+    ("reports/data_samples/conservation_status_sample.csv", "samples/conservation_status_sample.csv"),
+    ("reports/data_samples/occurrence_points_sample.csv", "samples/occurrence_points_sample.csv"),
+    ("reports/data_samples/offline_encyclopedia_sample.csv", "samples/offline_encyclopedia_sample.csv"),
     ("reports/data_samples/data_dictionary.csv", "samples/data_dictionary.csv"),
     ("reports/data_samples/pipeline_summary.json", "samples/pipeline_summary.json"),
+
+    # EDA y documentación automática
+    ("reports/eda/eda_class_distribution.csv", "eda/eda_class_distribution.csv"),
+    ("reports/eda/eda_conservation_summary.csv", "eda/eda_conservation_summary.csv"),
+    ("reports/eda/eda_habitat_summary.csv", "eda/eda_habitat_summary.csv"),
+    ("reports/eda/eda_findings.json", "eda/eda_findings.json"),
 ]
 
 

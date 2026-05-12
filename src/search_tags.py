@@ -1,0 +1,153 @@
+"""Generación de tags de búsqueda para consultas tipo vibe.
+
+Crea columnas:
+- color_tag
+- habitat_tag
+- size_tag
+- tags_de_busqueda
+
+Estas columnas preparan la app para convertir lenguaje natural en máscaras
+booleanas con `df.loc`.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+
+
+def add_search_tags_to_encyclopedia(encyclopedia_df: pd.DataFrame) -> pd.DataFrame:
+    """Añade tags de color, hábitat y tamaño."""
+    tagged_df = encyclopedia_df.copy()
+
+    tagged_df["color_tag"] = tagged_df.apply(infer_color_tag, axis=1)
+    tagged_df["habitat_tag"] = tagged_df.apply(infer_habitat_tag, axis=1)
+    tagged_df["size_tag"] = tagged_df.apply(infer_size_tag, axis=1)
+
+    tagged_df["tags_de_busqueda"] = (
+        tagged_df["color_tag"].fillna("").astype(str)
+        + " "
+        + tagged_df["habitat_tag"].fillna("").astype(str)
+        + " "
+        + tagged_df["size_tag"].fillna("").astype(str)
+        + " "
+        + tagged_df.get("vernacular_names", "").fillna("").astype(str)
+        + " "
+        + tagged_df.get("taxon_class", "").fillna("").astype(str)
+        + " "
+        + tagged_df.get("family", "").fillna("").astype(str)
+        + " "
+        + tagged_df.get("source_queries", "").fillna("").astype(str)
+    )
+
+    tagged_df["tags_de_busqueda"] = (
+        tagged_df["tags_de_busqueda"]
+        .str.lower()
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
+
+    if "search_document" in tagged_df.columns:
+        tagged_df["search_document"] = (
+            tagged_df["search_document"].fillna("").astype(str)
+            + " "
+            + tagged_df["tags_de_busqueda"].fillna("").astype(str)
+        )
+
+    return tagged_df
+
+
+def infer_color_tag(row: pd.Series) -> str:
+    """Infiere color aproximado para búsqueda natural."""
+    text = build_row_text(row)
+
+    if any(term in text for term in ["flamingo", "phoenicopter", "rosa", "pink"]):
+        return "pink rosa"
+
+    if any(term in text for term in ["frog", "rana", "amphibia", "hylidae"]):
+        return "green brown verde marron"
+
+    if any(term in text for term in ["butterfly", "mariposa", "lepidoptera", "papilionidae"]):
+        return "colorful bright multicolor"
+
+    if any(term in text for term in ["felidae", "panthera", "puma", "lion", "leon"]):
+        return "brown golden spotted marron dorado"
+
+    if any(term in text for term in ["polar", "ursus maritimus", "ice", "hielo"]):
+        return "white blanco"
+
+    if any(term in text for term in ["plant", "planta", "flower", "flor"]):
+        return "green colorful verde colorido"
+
+    return "unknown"
+
+
+def infer_habitat_tag(row: pd.Series) -> str:
+    """Infiere hábitat aproximado para búsqueda natural."""
+    text = build_row_text(row)
+
+    if any(term in text for term in ["polar", "ice", "hielo", "ursus maritimus"]):
+        return "polar ice arctic hielo"
+
+    if any(term in text for term in ["frog", "rana", "amphibia", "hylidae"]):
+        return "wetland river water rio humedo"
+
+    if any(term in text for term in ["flamingo", "phoenicopter", "anatidae", "laridae"]):
+        return "wetland lake coast agua humedal"
+
+    if any(term in text for term in ["felidae", "panthera", "puma"]):
+        return "forest savanna mountain bosque sabana montaña"
+
+    if any(term in text for term in ["lepidoptera", "butterfly", "mariposa"]):
+        return "meadow forest garden pradera bosque jardin"
+
+    if any(term in text for term in ["plant", "planta", "flower", "flor"]):
+        return "terrestrial meadow garden pradera jardin"
+
+    if any(term in text for term in ["desert", "desierto", "arid"]):
+        return "desert arid desierto"
+
+    return "unknown"
+
+
+def infer_size_tag(row: pd.Series) -> str:
+    """Infiere tamaño aproximado para búsqueda natural."""
+    text = build_row_text(row)
+
+    if any(term in text for term in ["mammalia", "felidae", "ursidae", "panthera", "puma"]):
+        return "large grande"
+
+    if any(term in text for term in ["aves", "bird", "ave", "anatidae", "laridae", "accipitridae"]):
+        return "medium large mediano grande"
+
+    if any(term in text for term in ["insecta", "lepidoptera", "butterfly", "mariposa"]):
+        return "small pequeño pequeno"
+
+    if any(term in text for term in ["amphibia", "frog", "rana"]):
+        return "small medium pequeño mediano"
+
+    if any(term in text for term in ["plantae", "plant", "planta"]):
+        return "small medium pequeño mediano"
+
+    return "unknown"
+
+
+def build_row_text(row: pd.Series) -> str:
+    """Construye texto normalizado de una fila."""
+    columns = [
+        "scientific_name",
+        "vernacular_names",
+        "kingdom",
+        "taxon_class",
+        "taxon_order",
+        "family",
+        "genus",
+        "source_queries",
+        "profile_text",
+    ]
+
+    values = [
+        str(row.get(column, "") or "").lower()
+        for column in columns
+    ]
+
+    return " ".join(values)

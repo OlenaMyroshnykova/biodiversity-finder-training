@@ -1,8 +1,8 @@
 # 🌿 Biodiversity Finder Training
 
-Training pipeline for **Biodiversity Finder**, an intelligent species search and biodiversity encyclopedia project.
+Training pipeline for **Biodiversity Finder**, an intelligent biodiversity search and species encyclopedia project.
 
-This repository contains the data science and machine learning pipeline used to collect biodiversity data, clean and enrich it, train a classification model, build a species encyclopedia, and publish the generated artifacts for the Streamlit application.
+This repository prepares the data science layer of the project: data acquisition, cleaning, enrichment, machine learning, EDA reports, conservation awareness, offline exports, and artifact publication.
 
 ---
 
@@ -32,167 +32,96 @@ This project was developed by:
 
 ## 📌 Project Overview
 
-**Biodiversity Finder Training** prepares the datasets and machine learning artifacts used by the public Biodiversity Finder app.
+**Biodiversity Finder Training** builds the enriched dataset used by the public Streamlit app.
 
-The pipeline works with real biodiversity data and produces an enriched species encyclopedia that can be searched by scientific names, taxonomy, common names, and multilingual descriptions.
+The pipeline combines biodiversity observations, climate features, common names, conservation signals, search tags, and map coordinates into a species encyclopedia.
 
-The project uses:
-
-- biodiversity occurrence data from **GBIF**;
-- taxonomic and geographic data cleaning;
-- climate enrichment using **NASA POWER API**;
-- common name enrichment using **GBIF Species API** and **Wikidata**;
-- a machine learning model for taxonomic classification;
-- Hugging Face as a public artifact storage.
+The final app can search species by scientific names, common names, taxonomy, and natural-language-style tags.
 
 ---
 
 ## ✨ Main Features
 
-- Download biodiversity records from GBIF.
-- Combine multiple biodiversity queries into a single dataset.
-- Clean and validate occurrence records.
-- Generate taxonomic, geographic, temporal, and climate features.
-- Enrich records with climate data.
-- Train a machine learning classifier.
-- Build an intelligent species encyclopedia.
-- Enrich species with common names from external sources.
-- Publish datasets, reports, and model artifacts to Hugging Face.
-- Provide a Streamlit dashboard for model and data inspection.
+- GBIF occurrence data collection.
+- Multi-source dataset creation with `pd.concat()`.
+- Data cleaning and feature engineering.
+- Climate enrichment with `pd.merge()`.
+- Common name enrichment using GBIF Species API and Wikidata.
+- Conservation status enrichment layer.
+- `tags_de_busqueda` for vibe-style natural search.
+- Random sampling with `df.sample()` for development with large datasets.
+- Occurrence points for future Folium habitat maps.
+- Offline light dataset export.
+- EDA reports and data discovery findings.
+- Machine learning model training.
+- Hugging Face artifact publication.
 
 ---
 
-## 🧠 What This Repository Produces
+## 🧠 Data Science Requirements Covered
 
-The pipeline generates the following main artifacts:
+### Big Join
 
-```text
-data/raw/gbif_occurrences_raw.parquet
-data/interim/gbif_occurrences_clean.parquet
-data/interim/climate_reference.csv
-data/interim/vernacular_names.csv
-data/processed/gbif_occurrences_features.parquet
-data/processed/species_encyclopedia.parquet
-models/taxon_classifier.joblib
-reports/metrics.json
-reports/classification_report.csv
-reports/data_samples/
-```
-
-The most important artifact for the public app is:
+The project joins multiple sources:
 
 ```text
-data/processed/species_encyclopedia.parquet
+GBIF occurrences
++ climate reference data
++ common names from GBIF/Wikidata
++ conservation status layer
++ search tags
 ```
 
-It contains one row per species with taxonomy, observations, geographic information, profile text, search text, and common names.
-
----
-
-## 🏗️ Repository Structure
+The pipeline demonstrates:
 
 ```text
-.github/workflows/
-  train_and_publish.yml
-
-data/
-  raw/
-  interim/
-  processed/
-
-models/
-  taxon_classifier.joblib
-
-reports/
-  metrics.json
-  classification_report.csv
-  data_samples/
-
-scripts/
-  run_pipeline.py
-  upload_artifacts.py
-
-src/
-  climate_enrichment.py
-  config.py
-  dashboard_loader.py
-  data_acquisition.py
-  data_cleaning.py
-  data_snapshots.py
-  encyclopedia.py
-  feature_engineering.py
-  model_training.py
-  vernacular_names.py
-
-tests/
-  test_climate_enrichment.py
-  test_dashboard_ui.py
-  test_data_acquisition.py
-  test_data_cleaning.py
-  test_data_snapshots.py
-  test_feature_engineering.py
-  test_intelligent_search_document.py
-  test_jaguar_query_plan.py
-  test_model_training.py
-  test_vernacular_names.py
-
-model_dashboard.py
-pytest.ini
-requirements.txt
-README.md
+pd.concat()
+pd.merge()
+df.sample()
 ```
 
----
+### Search Tags
 
-## ⚙️ Tech Stack
+The column:
 
-- **Python**
-- **Pandas**
-- **Scikit-learn**
-- **Requests**
-- **Joblib**
-- **PyArrow**
-- **Streamlit**
-- **Hugging Face Hub**
-- **GitHub Actions**
+```text
+tags_de_busqueda
+```
+
+combines estimated color, habitat, size, common names, taxonomy, and source query information.
+
+This prepares the app for fast `df.loc` filters such as:
+
+```python
+df.loc[
+    (df["size_tag"].str.contains("small")) &
+    (df["habitat_tag"].str.contains("desert"))
+]
+```
+
+### Conservation Awareness
+
+The encyclopedia includes:
+
+```text
+conservation_status
+conservation_category
+is_threatened
+conservation_source
+conservation_note
+```
+
+These fields allow the app to display threatened species with a different visual style.
 
 ---
 
 ## 🌍 Data Sources
 
-### GBIF Occurrence API
-
-Used to download real biodiversity occurrence records.
-
-Typical fields include:
-
-```text
-scientificName
-kingdom
-phylum
-class
-order
-family
-genus
-species
-countryCode
-decimalLatitude
-decimalLongitude
-eventDate
-media
-```
-
-### GBIF Species API
-
-Used to collect available common names for species.
-
-### Wikidata
-
-Used as an additional source of multilingual common names, labels, and aliases.
-
-### NASA POWER API
-
-Used to enrich geographic coordinates with climate-related variables.
+- GBIF Occurrence API
+- GBIF Species API
+- Wikidata
+- NASA POWER API
+- Educational conservation estimates / optional official validation
 
 ---
 
@@ -203,7 +132,7 @@ GBIF occurrence data
         ↓
 Raw dataset
         ↓
-Data cleaning
+Cleaning
         ↓
 Feature engineering
         ↓
@@ -211,50 +140,90 @@ Climate enrichment
         ↓
 Model training
         ↓
-Species encyclopedia generation
+Species encyclopedia
         ↓
-Common name enrichment
+Common names
         ↓
-Artifact publication on Hugging Face
+Conservation status
         ↓
-Streamlit app consumption
+Search tags
+        ↓
+Occurrence points
+        ↓
+Offline light exports
+        ↓
+EDA reports
+        ↓
+Hugging Face publication
+```
+
+---
+
+## 🏗️ Repository Structure
+
+```text
+.github/workflows/
+  train_and_publish.yml
+
+src/
+  climate_enrichment.py
+  conservation_status.py
+  data_acquisition.py
+  data_cleaning.py
+  eda_reporting.py
+  encyclopedia.py
+  feature_engineering.py
+  model_training.py
+  occurrence_points.py
+  offline_export.py
+  search_tags.py
+  vernacular_names.py
+
+scripts/
+  run_pipeline.py
+  upload_artifacts.py
+
+tests/
+  test_pro_requirements.py
+  test_vernacular_names.py
+  ...
+```
+
+---
+
+## 📦 Main Artifacts
+
+```text
+data/processed/species_encyclopedia.parquet
+data/processed/species_occurrence_points.parquet
+data/processed/species_encyclopedia_light.parquet
+data/processed/species_occurrence_points_light.parquet
+data/interim/conservation_status.csv
+data/interim/vernacular_names.csv
+reports/eda/eda_findings.json
+reports/eda/eda_class_distribution.csv
+reports/eda/eda_conservation_summary.csv
+reports/eda/eda_habitat_summary.csv
 ```
 
 ---
 
 ## 🚀 Local Setup
 
-Clone the repository:
-
 ```bash
 git clone https://github.com/OlenaMyroshnykova/biodiversity-finder-training.git
 cd biodiversity-finder-training
-```
-
-Create and activate a virtual environment:
-
-```bash
 python -m venv .venv
 source .venv/Scripts/activate
-```
-
-Install dependencies:
-
-```bash
 pip install -r requirements.txt
-```
-
-Run tests:
-
-```bash
 pytest
 ```
 
 ---
 
-## ▶️ Running the Pipeline Locally
+## ▶️ Running the Pipeline
 
-Small local run:
+Small development run:
 
 ```bash
 python scripts/run_pipeline.py \
@@ -262,10 +231,11 @@ python scripts/run_pipeline.py \
   --max-records 5000 \
   --min-class-records 10 \
   --max-climate-points 50 \
-  --max-vernacular-species 300
+  --max-vernacular-species 300 \
+  --sample-size 1000
 ```
 
-Recommended larger run:
+Recommended run:
 
 ```bash
 python scripts/run_pipeline.py \
@@ -276,124 +246,87 @@ python scripts/run_pipeline.py \
   --max-vernacular-species 3000
 ```
 
-Optional flags:
+---
 
-```bash
---skip-climate-api
---skip-vernacular-api
---skip-wikidata
+## 📊 EDA and Data Discovery
+
+The pipeline generates EDA outputs in:
+
+```text
+reports/eda/
 ```
+
+These reports help discover patterns such as:
+
+- dominant taxonomic classes;
+- distribution of conservation categories;
+- common habitat tags;
+- possible data imbalance;
+- species with low observation counts.
 
 ---
 
-## 📊 Model Dashboard
+## 🌱 Ethical Impact
 
-The repository includes a Streamlit dashboard for inspecting model results and generated artifacts.
+This project promotes awareness of biodiversity and conservation.
 
-Run locally:
+However:
 
-```bash
-streamlit run model_dashboard.py
-```
-
-Public dashboard:
-
-```text
-https://biodiversity-finder-training.streamlit.app/
-```
-
-The dashboard includes:
-
-- model accuracy;
-- classification report;
-- generated artifact overview;
-- sample datasets;
-- data quality information.
+- open biodiversity data can be incomplete or geographically biased;
+- conservation status must be validated with official scientific sources;
+- estimated tags are educational and should not be treated as biological facts;
+- the app is a learning tool, not an official ecological risk assessment system.
 
 ---
 
-## 🤖 Machine Learning
+## 📴 Offline Mode
 
-The model is trained in:
-
-```text
-src/model_training.py
-```
-
-It uses engineered features to classify biodiversity records by taxonomic class.
-
-The generated model is saved as:
+The pipeline creates lightweight compressed artifacts:
 
 ```text
-models/taxon_classifier.joblib
+species_encyclopedia_light.parquet
+species_occurrence_points_light.parquet
 ```
 
-Model metrics are saved in:
+These files allow the app to work as a field-friendly biodiversity encyclopedia with fewer network dependencies.
+
+Offline mode means:
 
 ```text
-reports/metrics.json
-reports/classification_report.csv
+the app uses a prepared local/light dataset
 ```
 
----
-
-## 🔎 Species Encyclopedia
-
-The species encyclopedia is built in:
-
-```text
-src/encyclopedia.py
-```
-
-and enriched with common names in:
-
-```text
-src/vernacular_names.py
-```
-
-The final encyclopedia is saved as:
-
-```text
-data/processed/species_encyclopedia.parquet
-```
-
-This file is used by the public Streamlit app to search and display species.
+It does not mean that the system can download new GBIF, Wikidata, or climate data without Internet.
 
 ---
 
 ## 🧪 Testing
 
-Run all tests:
-
 ```bash
 pytest
 ```
 
-The test suite checks:
+The tests cover:
 
-- data acquisition logic;
 - data cleaning;
 - feature engineering;
 - climate enrichment;
-- common name enrichment;
-- search document generation;
-- model training;
-- dashboard helpers.
+- common names;
+- conservation status;
+- search tags;
+- occurrence points;
+- offline export;
+- EDA findings;
+- model training.
 
 ---
 
 ## 🚢 GitHub Actions
 
-The training workflow is located at:
+The workflow is:
 
 ```text
 .github/workflows/train_and_publish.yml
-```
-
-It is designed to be executed manually from GitHub Actions:
-
-```text
-Actions → Train and publish biodiversity artifacts → Run workflow
 ```
 
 Recommended parameters:
@@ -411,47 +344,16 @@ skip_wikidata: false
 
 ---
 
-## 🔐 Required Secrets
-
-To publish artifacts to Hugging Face, the repository requires the following GitHub secret:
+## 🔐 Required Secret
 
 ```text
 HF_TOKEN
 ```
 
----
-
-## 📦 Artifact Publication
-
-Artifacts are uploaded to the Hugging Face dataset repository:
-
-```text
-selenamir/biodiversity-finder-artifacts
-```
-
-The upload script is:
-
-```text
-scripts/upload_artifacts.py
-```
+Used to publish artifacts to Hugging Face.
 
 ---
 
 ## 📝 License
 
 This project is intended for educational purposes.
-
----
-
-## 🌱 Project Status
-
-The repository currently supports:
-
-- global GBIF data collection;
-- multi-source biodiversity queries;
-- climate enrichment;
-- multilingual common name enrichment;
-- machine learning training;
-- species encyclopedia generation;
-- Hugging Face artifact publishing;
-- Streamlit model dashboard.

@@ -22,17 +22,29 @@ from src.config import (  # noqa: E402
     METRICS_PATH,
 )
 from src.climate_enrichment import add_climate_features  # noqa: E402
+from src.conservation_status import add_conservation_status_to_encyclopedia  # noqa: E402
 from src.data_acquisition import download_biodiversity_training_dataset  # noqa: E402
 from src.data_cleaning import clean_occurrences  # noqa: E402
 from src.data_snapshots import save_pipeline_snapshots  # noqa: E402
+from src.eda_reporting import generate_eda_reports  # noqa: E402
 from src.encyclopedia import build_species_encyclopedia  # noqa: E402
 from src.feature_engineering import create_features  # noqa: E402
 from src.model_training import train_model  # noqa: E402
+from src.occurrence_points import build_species_occurrence_points  # noqa: E402
+from src.offline_export import (  # noqa: E402
+    build_offline_encyclopedia,
+    build_offline_occurrence_points,
+)
+from src.search_tags import add_search_tags_to_encyclopedia  # noqa: E402
 from src.vernacular_names import add_vernacular_names_to_encyclopedia  # noqa: E402
 
 
 CLIMATE_REFERENCE_PATH = PROJECT_ROOT / "data" / "interim" / "climate_reference.csv"
 VERNACULAR_NAMES_PATH = PROJECT_ROOT / "data" / "interim" / "vernacular_names.csv"
+CONSERVATION_STATUS_PATH = PROJECT_ROOT / "data" / "interim" / "conservation_status.csv"
+OCCURRENCE_POINTS_PATH = PROJECT_ROOT / "data" / "processed" / "species_occurrence_points.parquet"
+OFFLINE_ENCYCLOPEDIA_PATH = PROJECT_ROOT / "data" / "processed" / "species_encyclopedia_light.parquet"
+OFFLINE_POINTS_PATH = PROJECT_ROOT / "data" / "processed" / "species_occurrence_points_light.parquet"
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,7 +85,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-wikidata",
         action="store_true",
-        help="No consulta Wikidata SPARQL.",
+        help="No consulta Wikidata SPARQL/Search.",
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=0,
+        help="Muestreo aleatorio con df.sample() para desarrollo inicial.",
+    )
+    parser.add_argument(
+        "--sample-random-state",
+        type=int,
+        default=42,
+        help="Semilla para df.sample().",
+    )
+    parser.add_argument(
+        "--offline-max-species",
+        type=int,
+        default=2000,
+        help="Máximo de especies para la enciclopedia offline ligera.",
     )
 
     return parser.parse_args()
@@ -93,11 +123,14 @@ def main() -> None:
         "max_climate_points": args.max_climate_points,
         "vernacular_names_source": "GBIF Species API + Wikidata + scientific_name fallback",
         "max_vernacular_species": args.max_vernacular_species,
+        "sample_size": args.sample_size,
+        "sample_random_state": args.sample_random_state,
+        "offline_max_species": args.offline_max_species,
     }
 
     print("Pipeline parameters:", parameters, flush=True)
 
-    print("1/8 Descargando dataset global multi-source desde GBIF...", flush=True)
+    print("1/12 Descargando dataset global multi-source desde GBIF...", flush=True)
     raw_df = download_biodiversity_training_dataset(
         country=args.country,
         max_records=args.max_records,
@@ -109,7 +142,7 @@ def main() -> None:
     print(f"   Source queries: {raw_df['source_query'].nunique() if 'source_query' in raw_df.columns else 0}", flush=True)
     print(f"   Guardado raw parquet: {RAW_OCCURRENCES_PATH}", flush=True)
 
-    print("2/8 Limpiando datos...", flush=True)
+    print("2/12 Limpiando datos...", flush=True)
     clean_df = clean_occurrences(
         raw_df,
         min_class_records=args.min_class_records,
@@ -119,11 +152,19 @@ def main() -> None:
     print(f"   Registros limpios: {len(clean_df):,}", flush=True)
     print(f"   Guardado clean parquet: {CLEAN_OCCURRENCES_PATH}", flush=True)
 
-    print("3/8 Creando features taxonómicas...", flush=True)
+    print("3/12 Creando features taxonómicas...", flush=True)
     features_df = create_features(clean_df)
     print(f"   Registros con features base: {len(features_df):,}", flush=True)
 
-    print("4/8 Enriqueciendo con clima usando df.merge()...", flush=True)
+    if args.sample_size and args.sample_size > 0 and len(features_df) > args.sample_size:
+        print("   Aplicando df.sample() para desarrollo inicial...", flush=True)
+        features_df = features_df.sample(
+            n=args.sample_size,
+            random_state=args.sample_random_state,
+        ).reset_index(drop=True)
+        print(f"   Registros tras sample: {len(features_df):,}", flush=True)
+
+    print("4/12 Enriqueciendo con clima usando df.merge()...", flush=True)
     features_df, climate_reference_df = add_climate_features(
         features_df,
         coordinate_precision=0,
@@ -138,7 +179,7 @@ def main() -> None:
     print(f"   Guardado climate reference: {CLIMATE_REFERENCE_PATH}", flush=True)
     print(f"   Guardado features enriquecidas: {FEATURES_PATH}", flush=True)
 
-    print("5/8 Entrenando modelo ML...", flush=True)
+    print("5/12 Entrenando modelo ML...", flush=True)
     metrics = train_model(
         features_df=features_df,
         model_path=MODEL_PATH,
@@ -150,11 +191,11 @@ def main() -> None:
     print(f"   Guardado metrics: {METRICS_PATH}", flush=True)
     print(f"   Guardado classification report: {CLASSIFICATION_REPORT_PATH}", flush=True)
 
-    print("6/8 Construyendo enciclopedia...", flush=True)
+    print("6/12 Construyendo enciclopedia...", flush=True)
     encyclopedia_df = build_species_encyclopedia(features_df)
     print(f"   Especies base en enciclopedia: {len(encyclopedia_df):,}", flush=True)
 
-    print("7/8 Añadiendo nombres comunes usando GBIF + Wikidata + df.merge()...", flush=True)
+    print("7/12 Añadiendo nombres comunes usando GBIF + Wikidata + df.merge()...", flush=True)
     encyclopedia_df, vernacular_names_df = add_vernacular_names_to_encyclopedia(
         encyclopedia_df=encyclopedia_df,
         features_df=features_df,
@@ -164,15 +205,44 @@ def main() -> None:
     )
     VERNACULAR_NAMES_PATH.parent.mkdir(parents=True, exist_ok=True)
     vernacular_names_df.to_csv(VERNACULAR_NAMES_PATH, index=False)
+    print(f"   Nombres comunes reunidos: {len(vernacular_names_df):,}", flush=True)
+    print(f"   Guardado vernacular names: {VERNACULAR_NAMES_PATH}", flush=True)
+
+    print("8/12 Añadiendo estatus de conservación con pd.merge()...", flush=True)
+    encyclopedia_df, conservation_df = add_conservation_status_to_encyclopedia(encyclopedia_df)
+    CONSERVATION_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conservation_df.to_csv(CONSERVATION_STATUS_PATH, index=False)
+    print(f"   Registros de conservación: {len(conservation_df):,}", flush=True)
+    print(f"   Guardado conservation status: {CONSERVATION_STATUS_PATH}", flush=True)
+
+    print("9/12 Añadiendo tags_de_busqueda para filtros df.loc...", flush=True)
+    encyclopedia_df = add_search_tags_to_encyclopedia(encyclopedia_df)
     ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
     encyclopedia_df.to_parquet(ENCYCLOPEDIA_PATH, index=False)
-    print(f"   Nombres comunes reunidos: {len(vernacular_names_df):,}", flush=True)
     print(f"   Especies enriquecidas: {len(encyclopedia_df):,}", flush=True)
-    print(f"   Fuentes de nombres: {sorted(vernacular_names_df['source'].dropna().unique().tolist()) if not vernacular_names_df.empty else []}", flush=True)
-    print(f"   Guardado vernacular names: {VERNACULAR_NAMES_PATH}", flush=True)
     print(f"   Guardado encyclopedia parquet: {ENCYCLOPEDIA_PATH}", flush=True)
 
-    print("8/8 Guardando muestras inspeccionables...", flush=True)
+    print("10/12 Construyendo puntos para mapas Folium...", flush=True)
+    occurrence_points_df = build_species_occurrence_points(features_df)
+    OCCURRENCE_POINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    occurrence_points_df.to_parquet(OCCURRENCE_POINTS_PATH, index=False)
+    print(f"   Puntos de avistamiento: {len(occurrence_points_df):,}", flush=True)
+    print(f"   Guardado occurrence points: {OCCURRENCE_POINTS_PATH}", flush=True)
+
+    print("11/12 Exportando versión ligera offline...", flush=True)
+    offline_encyclopedia_df = build_offline_encyclopedia(
+        encyclopedia_df,
+        max_species=args.offline_max_species,
+    )
+    offline_points_df = build_offline_occurrence_points(occurrence_points_df)
+    OFFLINE_ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    offline_encyclopedia_df.to_parquet(OFFLINE_ENCYCLOPEDIA_PATH, index=False)
+    OFFLINE_POINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    offline_points_df.to_parquet(OFFLINE_POINTS_PATH, index=False)
+    print(f"   Especies offline: {len(offline_encyclopedia_df):,}", flush=True)
+    print(f"   Puntos offline: {len(offline_points_df):,}", flush=True)
+
+    print("12/12 Guardando muestras, EDA y hallazgos...", flush=True)
     snapshot_files = save_pipeline_snapshots(
         raw_df=raw_df,
         clean_df=clean_df,
@@ -183,13 +253,25 @@ def main() -> None:
         sample_size=100,
     )
 
-    climate_sample_path = REPORTS_DIR / "data_samples" / "climate_reference_sample.csv"
-    climate_reference_df.head(100).to_csv(climate_sample_path, index=False)
-    snapshot_files["climate_reference_sample"] = climate_sample_path
+    extra_sample_files = {
+        "climate_reference_sample": (climate_reference_df, "climate_reference_sample.csv"),
+        "vernacular_names_sample": (vernacular_names_df, "vernacular_names_sample.csv"),
+        "conservation_status_sample": (conservation_df, "conservation_status_sample.csv"),
+        "occurrence_points_sample": (occurrence_points_df, "occurrence_points_sample.csv"),
+        "offline_encyclopedia_sample": (offline_encyclopedia_df, "offline_encyclopedia_sample.csv"),
+    }
 
-    vernacular_sample_path = REPORTS_DIR / "data_samples" / "vernacular_names_sample.csv"
-    vernacular_names_df.head(100).to_csv(vernacular_sample_path, index=False)
-    snapshot_files["vernacular_names_sample"] = vernacular_sample_path
+    for name, (dataframe, filename) in extra_sample_files.items():
+        sample_path = REPORTS_DIR / "data_samples" / filename
+        dataframe.head(100).to_csv(sample_path, index=False)
+        snapshot_files[name] = sample_path
+
+    eda_files = generate_eda_reports(
+        encyclopedia_df=encyclopedia_df,
+        features_df=features_df,
+        output_dir=REPORTS_DIR / "eda",
+    )
+    snapshot_files.update(eda_files)
 
     for name, path in snapshot_files.items():
         print(f"   Sample {name}: {path}", flush=True)
