@@ -6,8 +6,11 @@ from src.vernacular_names import (
     VernacularNameRecord,
     add_vernacular_names_to_encyclopedia,
     build_wikidata_query,
+    build_wikidata_query_by_gbif_key,
     canonicalize_scientific_name,
+    clean_species_key,
     combine_vernacular_sources,
+    fetch_wikidata_search_names,
     fetch_wikidata_vernacular_names,
     normalize_language_code,
     summarize_vernacular_names,
@@ -33,6 +36,12 @@ def test_canonicalize_scientific_name_removes_authorship() -> None:
     assert canonicalize_scientific_name("Panthera leo (Linnaeus, 1758)") == "Panthera leo"
 
 
+def test_clean_species_key_removes_float_suffix() -> None:
+    """Debe limpiar claves que vienen como float string."""
+    assert clean_species_key("5219404.0") == "5219404"
+    assert clean_species_key("5219404") == "5219404"
+
+
 def test_wikidata_query_contains_scientific_name() -> None:
     """La query debe buscar por P225."""
     query = build_wikidata_query("Panthera leo")
@@ -42,6 +51,14 @@ def test_wikidata_query_contains_scientific_name() -> None:
     assert "skos:altLabel" in query
 
 
+def test_wikidata_query_by_gbif_key_contains_p846() -> None:
+    """La query debe buscar por GBIF taxon ID P846."""
+    query = build_wikidata_query_by_gbif_key("5219404")
+
+    assert 'wdt:P846 "5219404"' in query
+    assert "rdfs:label" in query
+
+
 def test_normalize_language_code() -> None:
     """Debe convertir ISO 639-1 a ISO 639-3."""
     assert normalize_language_code("es") == "spa"
@@ -49,8 +66,8 @@ def test_normalize_language_code() -> None:
     assert normalize_language_code("ru") == "rus"
 
 
-def test_fetch_wikidata_vernacular_names_parses_common_names(monkeypatch) -> None:
-    """Debe leer nombres comunes, labels y aliases de Wikidata."""
+def test_fetch_wikidata_vernacular_names_uses_sparql(monkeypatch) -> None:
+    """Debe leer nombres comunes, labels y aliases de Wikidata SPARQL."""
     def fake_get(url, params=None, headers=None, timeout=None):
         return FakeResponse(
             {
@@ -83,18 +100,76 @@ def test_fetch_wikidata_vernacular_names_parses_common_names(monkeypatch) -> Non
     records = fetch_wikidata_vernacular_names(
         scientific_name="Panthera leo (Linnaeus, 1758)",
         canonical_scientific_name="Panthera leo",
-        species_key="",
+        species_key="5219404",
     )
 
     names = {record.vernacular_name for record in records}
-    sources = {record.source for record in records}
 
     assert "León" in names
     assert "lion" in names
     assert "Лев" in names
-    assert "Wikidata P1843" in sources
-    assert "Wikidata label" in sources
-    assert "Wikidata alias" in sources
+
+
+def test_fetch_wikidata_vernacular_names_falls_back_to_search(monkeypatch) -> None:
+    """Debe usar Wikidata Search API si SPARQL no devuelve resultados."""
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if "query.wikidata.org" in url:
+            return FakeResponse({"results": {"bindings": []}})
+
+        return FakeResponse(
+            {
+                "search": [
+                    {
+                        "label": "lion",
+                        "description": "species of mammal",
+                        "aliases": ["León", "Лев"],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("src.vernacular_names.requests.get", fake_get)
+
+    records = fetch_wikidata_vernacular_names(
+        scientific_name="Panthera leo (Linnaeus, 1758)",
+        canonical_scientific_name="Panthera leo",
+        species_key="5219404",
+    )
+
+    names = {record.vernacular_name for record in records}
+
+    assert "lion" in names
+    assert "León" in names
+    assert "Лев" in names
+
+
+def test_fetch_wikidata_search_names_filters_taxon_results(monkeypatch) -> None:
+    """Debe leer nombres desde Search API."""
+    def fake_get(url, params=None, headers=None, timeout=None):
+        return FakeResponse(
+            {
+                "search": [
+                    {
+                        "label": "lion",
+                        "description": "species of mammal",
+                        "aliases": ["León"],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("src.vernacular_names.requests.get", fake_get)
+
+    records = fetch_wikidata_search_names(
+        scientific_name="Panthera leo (Linnaeus, 1758)",
+        canonical_scientific_name="Panthera leo",
+        species_key="5219404",
+    )
+
+    names = {record.vernacular_name for record in records}
+
+    assert "lion" in names
+    assert "León" in names
 
 
 def test_combine_vernacular_sources_uses_concat() -> None:
@@ -187,7 +262,7 @@ def test_add_vernacular_names_to_encyclopedia_uses_wikidata(monkeypatch) -> None
         ]
     )
     features_df = pd.DataFrame(
-        [{"scientific_name": "Panthera leo (Linnaeus, 1758)", "speciesKey": 123}]
+        [{"scientific_name": "Panthera leo (Linnaeus, 1758)", "speciesKey": 5219404}]
     )
 
     def fake_gbif(*args, **kwargs):

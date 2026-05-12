@@ -3,9 +3,9 @@
 Este módulo enriquece la enciclopedia con nombres humanos usando fuentes externas:
 
 1. GBIF Species API / vernacularNames.
-2. Wikidata P1843 / taxon common name.
-3. Wikidata labels.
-4. Wikidata aliases.
+2. Wikidata SPARQL por GBIF taxon ID P846.
+3. Wikidata SPARQL por taxon name P225.
+4. Wikidata Search API como fallback.
 5. Fallback por scientific_name.
 
 Después combina las fuentes con `pd.concat()` y une el resumen final con la
@@ -24,6 +24,7 @@ import requests
 
 GBIF_SPECIES_URL = "https://api.gbif.org/v1/species"
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
+WIKIDATA_SEARCH_URL = "https://www.wikidata.org/w/api.php"
 
 REQUEST_HEADERS = {
     "User-Agent": (
@@ -82,12 +83,7 @@ def add_vernacular_names_to_encyclopedia(
     use_wikidata: bool = True,
     pause_seconds: float = 0.05,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Añade nombres comunes a la enciclopedia usando fuentes externas.
-
-    Returns:
-        Tupla: enciclopedia enriquecida, tabla larga de nombres comunes.
-    """
+    """Añade nombres comunes a la enciclopedia usando fuentes externas."""
     if encyclopedia_df.empty:
         empty_names_df = build_empty_vernacular_names()
         return encyclopedia_df.copy(), empty_names_df
@@ -143,13 +139,7 @@ def add_vernacular_names_to_encyclopedia(
 
 
 def canonicalize_scientific_name(scientific_name: object) -> str:
-    """
-    Convierte nombres científicos con autoría en nombres canónicos simples.
-
-    Ejemplos:
-    - Panthera leo (Linnaeus, 1758) -> Panthera leo
-    - Panthera leo melanochaita (C.E.H.Smith, 1858) -> Panthera leo melanochaita
-    """
+    """Convierte nombres científicos con autoría en nombres canónicos simples."""
     text = str(scientific_name or "").strip()
     text = re.sub(r"\s*\([^)]*\)", "", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -198,8 +188,22 @@ def build_species_lookup(
         lookup_df["species_key"] = ""
 
     lookup_df["species_key"] = lookup_df["species_key"].fillna("").astype(str)
+    lookup_df["species_key"] = lookup_df["species_key"].apply(clean_species_key)
 
     return lookup_df
+
+
+def clean_species_key(value: object) -> str:
+    """Limpia species_key para poder compararlo con Wikidata P846."""
+    text = str(value or "").strip()
+
+    if not text or text.lower() == "nan":
+        return ""
+
+    if re.fullmatch(r"\d+\.0", text):
+        return text.split(".")[0]
+
+    return text
 
 
 def build_empty_vernacular_names() -> pd.DataFrame:
@@ -231,7 +235,7 @@ def build_gbif_vernacular_names_table(
     for _, row in species_lookup_df.iterrows():
         scientific_name = str(row.get("scientific_name", "")).strip()
         canonical_name = str(row.get("canonical_scientific_name", "")).strip()
-        species_key = str(row.get("species_key", "")).strip()
+        species_key = clean_species_key(row.get("species_key", ""))
 
         if not scientific_name or not species_key:
             continue
@@ -244,8 +248,7 @@ def build_gbif_vernacular_names_table(
             )
         )
 
-        if pause_seconds > 0:
-            time.sleep(pause_seconds)
+        sleep_if_needed(pause_seconds)
 
     return records_to_dataframe(records)
 
@@ -275,7 +278,7 @@ def fetch_gbif_vernacular_names(
             continue
 
         vernacular_name = clean_vernacular_name(item.get("vernacularName", ""))
-        language = str(item.get("language", "")).strip().lower()
+        language = normalize_language_code(item.get("language", ""))
 
         if not is_good_vernacular_name(vernacular_name, canonical_scientific_name):
             continue
@@ -309,7 +312,7 @@ def build_wikidata_vernacular_names_table(
     for _, row in species_lookup_df.iterrows():
         scientific_name = str(row.get("scientific_name", "")).strip()
         canonical_name = str(row.get("canonical_scientific_name", "")).strip()
-        species_key = str(row.get("species_key", "")).strip()
+        species_key = clean_species_key(row.get("species_key", ""))
 
         if not canonical_name:
             continue
@@ -322,8 +325,7 @@ def build_wikidata_vernacular_names_table(
             )
         )
 
-        if pause_seconds > 0:
-            time.sleep(pause_seconds)
+        sleep_if_needed(pause_seconds)
 
     return records_to_dataframe(records)
 
@@ -335,9 +337,53 @@ def fetch_wikidata_vernacular_names(
     species_key: str,
     timeout: int = 30,
 ) -> list[VernacularNameRecord]:
-    """Descarga nombres comunes desde Wikidata SPARQL."""
-    query = build_wikidata_query(canonical_scientific_name)
+    """Descarga nombres comunes desde Wikidata por varios caminos."""
+    records: list[VernacularNameRecord] = []
 
+    if species_key:
+        records.extend(
+            fetch_wikidata_sparql_names(
+                scientific_name=scientific_name,
+                canonical_scientific_name=canonical_scientific_name,
+                species_key=species_key,
+                query=build_wikidata_query_by_gbif_key(species_key),
+                timeout=timeout,
+            )
+        )
+
+    if not records:
+        records.extend(
+            fetch_wikidata_sparql_names(
+                scientific_name=scientific_name,
+                canonical_scientific_name=canonical_scientific_name,
+                species_key=species_key,
+                query=build_wikidata_query_by_scientific_name(canonical_scientific_name),
+                timeout=timeout,
+            )
+        )
+
+    if not records:
+        records.extend(
+            fetch_wikidata_search_names(
+                scientific_name=scientific_name,
+                canonical_scientific_name=canonical_scientific_name,
+                species_key=species_key,
+                timeout=timeout,
+            )
+        )
+
+    return sort_vernacular_records(records)
+
+
+def fetch_wikidata_sparql_names(
+    *,
+    scientific_name: str,
+    canonical_scientific_name: str,
+    species_key: str,
+    query: str,
+    timeout: int = 30,
+) -> list[VernacularNameRecord]:
+    """Ejecuta una consulta SPARQL y parsea nombres."""
     try:
         response = requests.get(
             WIKIDATA_SPARQL_URL,
@@ -351,6 +397,23 @@ def fetch_wikidata_vernacular_names(
         return []
 
     bindings = payload.get("results", {}).get("bindings", [])
+
+    return parse_wikidata_bindings(
+        bindings=bindings,
+        scientific_name=scientific_name,
+        canonical_scientific_name=canonical_scientific_name,
+        species_key=species_key,
+    )
+
+
+def parse_wikidata_bindings(
+    *,
+    bindings: list[dict],
+    scientific_name: str,
+    canonical_scientific_name: str,
+    species_key: str,
+) -> list[VernacularNameRecord]:
+    """Parsea bindings de Wikidata SPARQL."""
     records: list[VernacularNameRecord] = []
 
     for binding in bindings:
@@ -384,13 +447,38 @@ def fetch_wikidata_vernacular_names(
                 )
             )
 
-    return sort_vernacular_records(records)
+    return records
 
 
-def build_wikidata_query(canonical_scientific_name: str) -> str:
+def build_wikidata_query_by_gbif_key(species_key: str) -> str:
+    """Construye SPARQL por GBIF taxon ID / P846."""
+    escaped_key = clean_species_key(species_key).replace("\\", "\\\\").replace('"', '\\"')
+    language_filter = build_language_filter()
+
+    return f"""
+    SELECT ?item ?commonName ?label ?alias WHERE {{
+      ?item wdt:P846 "{escaped_key}".
+      OPTIONAL {{
+        ?item wdt:P1843 ?commonName.
+        FILTER(LANG(?commonName) IN ({language_filter}))
+      }}
+      OPTIONAL {{
+        ?item rdfs:label ?label.
+        FILTER(LANG(?label) IN ({language_filter}))
+      }}
+      OPTIONAL {{
+        ?item skos:altLabel ?alias.
+        FILTER(LANG(?alias) IN ({language_filter}))
+      }}
+    }}
+    LIMIT 200
+    """
+
+
+def build_wikidata_query_by_scientific_name(canonical_scientific_name: str) -> str:
     """Construye consulta SPARQL para Wikidata por nombre científico P225."""
     escaped_name = canonical_scientific_name.replace("\\", "\\\\").replace('"', '\\"')
-    language_filter = ", ".join(f'"{language}"' for language in SUPPORTED_WIKIDATA_LANGUAGES)
+    language_filter = build_language_filter()
 
     return f"""
     SELECT ?item ?commonName ?label ?alias WHERE {{
@@ -412,6 +500,126 @@ def build_wikidata_query(canonical_scientific_name: str) -> str:
     """
 
 
+def build_wikidata_query(canonical_scientific_name: str) -> str:
+    """Mantiene compatibilidad con tests anteriores."""
+    return build_wikidata_query_by_scientific_name(canonical_scientific_name)
+
+
+def build_language_filter() -> str:
+    """Devuelve lista de idiomas para SPARQL."""
+    return ", ".join(f'"{language}"' for language in SUPPORTED_WIKIDATA_LANGUAGES)
+
+
+def fetch_wikidata_search_names(
+    *,
+    scientific_name: str,
+    canonical_scientific_name: str,
+    species_key: str,
+    timeout: int = 30,
+) -> list[VernacularNameRecord]:
+    """Usa Wikidata Search API como fallback si SPARQL no devuelve nombres."""
+    records: list[VernacularNameRecord] = []
+
+    for language in SUPPORTED_WIKIDATA_LANGUAGES:
+        params = {
+            "action": "wbsearchentities",
+            "search": canonical_scientific_name,
+            "language": language,
+            "uselang": language,
+            "format": "json",
+            "limit": 5,
+        }
+
+        try:
+            response = requests.get(
+                WIKIDATA_SEARCH_URL,
+                params=params,
+                headers=REQUEST_HEADERS,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            continue
+
+        for item in payload.get("search", []):
+            label = clean_vernacular_name(item.get("label", ""))
+            description = clean_vernacular_name(item.get("description", ""))
+
+            if not is_probable_taxon_result(
+                label=label,
+                description=description,
+                canonical_scientific_name=canonical_scientific_name,
+            ):
+                continue
+
+            language_code = normalize_language_code(language)
+
+            if is_good_vernacular_name(label, canonical_scientific_name):
+                records.append(
+                    VernacularNameRecord(
+                        scientific_name=scientific_name,
+                        canonical_scientific_name=canonical_scientific_name,
+                        species_key=species_key,
+                        language=language_code,
+                        vernacular_name=label,
+                        source="Wikidata search label",
+                    )
+                )
+
+            aliases = item.get("aliases", [])
+
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    alias_name = clean_vernacular_name(alias)
+
+                    if is_good_vernacular_name(alias_name, canonical_scientific_name):
+                        records.append(
+                            VernacularNameRecord(
+                                scientific_name=scientific_name,
+                                canonical_scientific_name=canonical_scientific_name,
+                                species_key=species_key,
+                                language=language_code,
+                                vernacular_name=alias_name,
+                                source="Wikidata search alias",
+                            )
+                        )
+
+    return sort_vernacular_records(records)
+
+
+def is_probable_taxon_result(
+    *,
+    label: str,
+    description: str,
+    canonical_scientific_name: str,
+) -> bool:
+    """Filtra resultados de búsqueda de Wikidata."""
+    combined_text = f"{label} {description}".lower()
+    canonical_lower = canonical_scientific_name.lower()
+
+    taxon_markers = [
+        "taxon",
+        "species",
+        "specie",
+        "especie",
+        "animal",
+        "plant",
+        "planta",
+        "mammal",
+        "ave",
+        "bird",
+        "insect",
+        "genus",
+        "género",
+    ]
+
+    if canonical_lower in combined_text:
+        return True
+
+    return any(marker in combined_text for marker in taxon_markers)
+
+
 def build_fallback_names_table(species_lookup_df: pd.DataFrame) -> pd.DataFrame:
     """Crea fallback de nombre científico para todas las especies."""
     if species_lookup_df.empty:
@@ -421,7 +629,7 @@ def build_fallback_names_table(species_lookup_df: pd.DataFrame) -> pd.DataFrame:
         VernacularNameRecord(
             scientific_name=str(row.get("scientific_name", "")).strip(),
             canonical_scientific_name=str(row.get("canonical_scientific_name", "")).strip(),
-            species_key=str(row.get("species_key", "")).strip(),
+            species_key=clean_species_key(row.get("species_key", "")),
             language="lat",
             vernacular_name=str(row.get("scientific_name", "")).strip(),
             source="scientific_name_fallback",
@@ -594,8 +802,6 @@ def is_good_vernacular_name(
         "http://",
         "https://",
         "wikidata",
-        "taxon",
-        "species",
         "undefined",
         "unknown",
     ]
@@ -603,8 +809,6 @@ def is_good_vernacular_name(
     if any(marker in lower_name for marker in bad_markers):
         return False
 
-    # El scientific name también se guarda como fallback, pero no desde
-    # fuentes de nombres comunes.
     if lower_name == lower_scientific_name:
         return False
 
@@ -662,3 +866,9 @@ def unique_preserve_order(values: pd.Series) -> list[str]:
         result.append(text)
 
     return result
+
+
+def sleep_if_needed(seconds: float) -> None:
+    """Pausa pequeña para respetar APIs externas."""
+    if seconds > 0:
+        time.sleep(seconds)
