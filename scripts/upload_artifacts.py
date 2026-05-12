@@ -16,6 +16,7 @@ FILES_TO_UPLOAD = [
     ("data/raw/gbif_occurrences_raw.parquet", "raw/gbif_occurrences_raw.parquet"),
     ("data/interim/gbif_occurrences_clean.parquet", "interim/gbif_occurrences_clean.parquet"),
     ("data/interim/climate_reference.csv", "interim/climate_reference.csv"),
+    ("data/interim/vernacular_names.csv", "interim/vernacular_names.csv"),
     ("data/processed/gbif_occurrences_features.parquet", "processed/gbif_occurrences_features.parquet"),
     ("data/processed/species_encyclopedia.parquet", "processed/species_encyclopedia.parquet"),
 
@@ -30,6 +31,7 @@ FILES_TO_UPLOAD = [
     ("reports/data_samples/features_sample.csv", "samples/features_sample.csv"),
     ("reports/data_samples/encyclopedia_sample.csv", "samples/encyclopedia_sample.csv"),
     ("reports/data_samples/climate_reference_sample.csv", "samples/climate_reference_sample.csv"),
+    ("reports/data_samples/vernacular_names_sample.csv", "samples/vernacular_names_sample.csv"),
     ("reports/data_samples/data_dictionary.csv", "samples/data_dictionary.csv"),
     ("reports/data_samples/pipeline_summary.json", "samples/pipeline_summary.json"),
 ]
