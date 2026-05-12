@@ -45,8 +45,8 @@ def build_species_occurrence_points(
 ) -> pd.DataFrame:
     """Construye tabla ligera de coordenadas por especie.
 
-    Esta función debe recibir preferentemente `clean_df`, no `features_df`,
-    porque los datos limpios conservan las coordenadas originales de GBIF.
+    Esta función debe recibir preferentemente `clean_df`, porque conserva
+    las coordenadas originales de GBIF.
     """
     empty_df = build_empty_occurrence_points()
 
@@ -89,24 +89,23 @@ def build_species_occurrence_points(
     country_column = find_first_existing_column(working_df, COUNTRY_CANDIDATES)
     date_column = find_first_existing_column(working_df, DATE_CANDIDATES)
 
-    points_df = pd.DataFrame(
-        {
-            "scientific_name": working_df["scientific_name"].astype(str),
-            "canonical_scientific_name": working_df["canonical_scientific_name"].astype(str),
-            "decimalLatitude": working_df[latitude_column].astype(float),
-            "decimalLongitude": working_df[longitude_column].astype(float),
-            "countryCode": (
-                working_df[country_column].fillna("").astype(str)
-                if country_column
-                else ""
-            ),
-            "eventDate": (
-                working_df[date_column].fillna("").astype(str)
-                if date_column
-                else ""
-            ),
-        }
+    points_df = pd.DataFrame(index=working_df.index)
+    points_df["scientific_name"] = working_df["scientific_name"].fillna("").astype(str)
+    points_df["canonical_scientific_name"] = (
+        working_df["canonical_scientific_name"].fillna("").astype(str)
     )
+    points_df["decimalLatitude"] = working_df[latitude_column].astype(float)
+    points_df["decimalLongitude"] = working_df[longitude_column].astype(float)
+
+    if country_column:
+        points_df["countryCode"] = working_df[country_column].fillna("").astype(str)
+    else:
+        points_df["countryCode"] = ""
+
+    if date_column:
+        points_df["eventDate"] = working_df[date_column].fillna("").astype(str)
+    else:
+        points_df["eventDate"] = ""
 
     optional_columns = [
         "taxon_class",

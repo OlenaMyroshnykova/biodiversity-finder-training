@@ -29,6 +29,7 @@ def test_build_species_occurrence_points_from_gbif_columns() -> None:
     points_df = build_species_occurrence_points(df)
 
     assert len(points_df) == 2
+    assert "canonical_scientific_name" in points_df.columns
     assert "decimalLatitude" in points_df.columns
     assert "decimalLongitude" in points_df.columns
     assert points_df.iloc[0]["canonical_scientific_name"] == "Panthera leo"
@@ -51,6 +52,7 @@ def test_build_species_occurrence_points_from_snake_case_columns() -> None:
     points_df = build_species_occurrence_points(df)
 
     assert len(points_df) == 1
+    assert points_df.iloc[0]["canonical_scientific_name"] == "Rana temporaria Linnaeus, 1758"
     assert points_df.iloc[0]["decimalLatitude"] == 40.0
     assert points_df.iloc[0]["decimalLongitude"] == -3.0
 
