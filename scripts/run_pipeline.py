@@ -222,8 +222,8 @@ def main() -> None:
     print(f"   Especies enriquecidas: {len(encyclopedia_df):,}", flush=True)
     print(f"   Guardado encyclopedia parquet: {ENCYCLOPEDIA_PATH}", flush=True)
 
-    print("10/12 Construyendo puntos para mapas Folium...", flush=True)
-    occurrence_points_df = build_species_occurrence_points(features_df)
+    print("10/12 Construyendo puntos para mapas Folium desde clean_df...", flush=True)
+    occurrence_points_df = build_species_occurrence_points(clean_df)
     OCCURRENCE_POINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     occurrence_points_df.to_parquet(OCCURRENCE_POINTS_PATH, index=False)
     print(f"   Puntos de avistamiento: {len(occurrence_points_df):,}", flush=True)
