@@ -1,4 +1,11 @@
-"""Generación de puntos de avistamiento para mapas Folium."""
+"""Generación de puntos de avistamiento para mapas Folium.
+
+Este módulo crea el artefacto:
+
+    data/processed/species_occurrence_points.parquet
+
+La app necesita este archivo para pintar puntos en el mapa Folium.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +43,15 @@ DATE_CANDIDATES = [
     "year",
 ]
 
+OUTPUT_COLUMNS = [
+    "scientific_name",
+    "canonical_scientific_name",
+    "decimalLatitude",
+    "decimalLongitude",
+    "countryCode",
+    "eventDate",
+]
+
 
 def build_species_occurrence_points(
     occurrences_df: pd.DataFrame,
@@ -45,22 +61,20 @@ def build_species_occurrence_points(
 ) -> pd.DataFrame:
     """Construye tabla ligera de coordenadas por especie.
 
-    Esta función debe recibir preferentemente `clean_df`, porque conserva
+    Debe recibir preferentemente `clean_df`, porque ahí se conservan
     las coordenadas originales de GBIF.
     """
-    empty_df = build_empty_occurrence_points()
-
     if occurrences_df.empty:
-        return empty_df
+        return build_empty_occurrence_points()
 
     latitude_column = find_first_existing_column(occurrences_df, LATITUDE_CANDIDATES)
     longitude_column = find_first_existing_column(occurrences_df, LONGITUDE_CANDIDATES)
 
     if not latitude_column or not longitude_column:
-        return empty_df
+        return build_empty_occurrence_points()
 
     if "scientific_name" not in occurrences_df.columns:
-        return empty_df
+        return build_empty_occurrence_points()
 
     working_df = occurrences_df.copy()
 
@@ -80,49 +94,67 @@ def build_species_occurrence_points(
     ].copy()
 
     if working_df.empty:
-        return empty_df
-
-    working_df["canonical_scientific_name"] = working_df["scientific_name"].apply(
-        canonicalize_scientific_name
-    )
+        return build_empty_occurrence_points()
 
     country_column = find_first_existing_column(working_df, COUNTRY_CANDIDATES)
     date_column = find_first_existing_column(working_df, DATE_CANDIDATES)
 
-    points_df = pd.DataFrame(index=working_df.index)
-    points_df["scientific_name"] = working_df["scientific_name"].fillna("").astype(str)
-    points_df["canonical_scientific_name"] = (
-        working_df["canonical_scientific_name"].fillna("").astype(str)
+    points_df = pd.DataFrame(
+        {
+            "scientific_name": working_df["scientific_name"].fillna("").astype(str),
+            "canonical_scientific_name": (
+                working_df["scientific_name"]
+                .fillna("")
+                .astype(str)
+                .apply(canonicalize_scientific_name)
+            ),
+            "decimalLatitude": working_df[latitude_column].astype(float),
+            "decimalLongitude": working_df[longitude_column].astype(float),
+            "countryCode": build_optional_text_series(working_df, country_column),
+            "eventDate": build_optional_text_series(working_df, date_column),
+        },
+        index=working_df.index,
     )
-    points_df["decimalLatitude"] = working_df[latitude_column].astype(float)
-    points_df["decimalLongitude"] = working_df[longitude_column].astype(float)
 
-    if country_column:
-        points_df["countryCode"] = working_df[country_column].fillna("").astype(str)
-    else:
-        points_df["countryCode"] = ""
-
-    if date_column:
-        points_df["eventDate"] = working_df[date_column].fillna("").astype(str)
-    else:
-        points_df["eventDate"] = ""
-
-    optional_columns = [
-        "taxon_class",
-        "family",
-        "source_query",
-        "source_queries",
-    ]
-
-    for column in optional_columns:
-        if column in working_df.columns:
-            points_df[column] = working_df[column].fillna("").astype(str)
+    for optional_column in ["taxon_class", "family", "source_query", "source_queries"]:
+        if optional_column in working_df.columns:
+            points_df[optional_column] = working_df[optional_column].fillna("").astype(str)
 
     points_df = points_df.drop_duplicates(
         subset=["canonical_scientific_name", "decimalLatitude", "decimalLongitude"]
     )
 
-    points_df = (
+    points_df = limit_points_per_species(
+        points_df,
+        max_points_per_species=max_points_per_species,
+        random_state=random_state,
+    )
+
+    return points_df.reset_index(drop=True)
+
+
+def build_optional_text_series(df: pd.DataFrame, column: str) -> pd.Series:
+    """Devuelve una serie de texto para columnas opcionales."""
+    if column and column in df.columns:
+        return df[column].fillna("").astype(str)
+
+    return pd.Series([""] * len(df), index=df.index, dtype=str)
+
+
+def limit_points_per_species(
+    points_df: pd.DataFrame,
+    *,
+    max_points_per_species: int,
+    random_state: int,
+) -> pd.DataFrame:
+    """Limita el número de puntos por especie."""
+    if points_df.empty:
+        return points_df
+
+    if max_points_per_species <= 0:
+        return points_df
+
+    return (
         points_df
         .groupby("canonical_scientific_name", group_keys=False)
         .apply(
@@ -131,24 +163,12 @@ def build_species_occurrence_points(
                 random_state=random_state,
             )
         )
-        .reset_index(drop=True)
     )
-
-    return points_df
 
 
 def build_empty_occurrence_points() -> pd.DataFrame:
     """Devuelve una tabla vacía con el schema esperado por la app."""
-    return pd.DataFrame(
-        columns=[
-            "scientific_name",
-            "canonical_scientific_name",
-            "decimalLatitude",
-            "decimalLongitude",
-            "countryCode",
-            "eventDate",
-        ]
-    )
+    return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
 
 def find_first_existing_column(

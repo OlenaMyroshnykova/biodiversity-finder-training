@@ -29,10 +29,15 @@ def test_build_species_occurrence_points_from_gbif_columns() -> None:
     points_df = build_species_occurrence_points(df)
 
     assert len(points_df) == 2
-    assert "canonical_scientific_name" in points_df.columns
-    assert "decimalLatitude" in points_df.columns
-    assert "decimalLongitude" in points_df.columns
-    assert points_df.iloc[0]["canonical_scientific_name"] == "Panthera leo"
+    assert points_df.columns.tolist()[:6] == [
+        "scientific_name",
+        "canonical_scientific_name",
+        "decimalLatitude",
+        "decimalLongitude",
+        "countryCode",
+        "eventDate",
+    ]
+    assert set(points_df["canonical_scientific_name"]) == {"Panthera leo"}
 
 
 def test_build_species_occurrence_points_from_snake_case_columns() -> None:
@@ -55,6 +60,7 @@ def test_build_species_occurrence_points_from_snake_case_columns() -> None:
     assert points_df.iloc[0]["canonical_scientific_name"] == "Rana temporaria Linnaeus, 1758"
     assert points_df.iloc[0]["decimalLatitude"] == 40.0
     assert points_df.iloc[0]["decimalLongitude"] == -3.0
+    assert points_df.iloc[0]["countryCode"] == "ES"
 
 
 def test_build_species_occurrence_points_returns_empty_without_coordinates() -> None:
@@ -79,3 +85,26 @@ def test_build_species_occurrence_points_returns_empty_without_coordinates() -> 
         "countryCode",
         "eventDate",
     ]
+
+
+def test_build_species_occurrence_points_limits_points_per_species() -> None:
+    """Debe limitar puntos por especie."""
+    df = pd.DataFrame(
+        [
+            {
+                "scientific_name": "Panthera leo",
+                "decimalLatitude": float(index),
+                "decimalLongitude": float(index),
+            }
+            for index in range(10)
+        ]
+    )
+
+    points_df = build_species_occurrence_points(
+        df,
+        max_points_per_species=3,
+        random_state=42,
+    )
+
+    assert len(points_df) == 3
+    assert set(points_df["canonical_scientific_name"]) == {"Panthera leo"}
