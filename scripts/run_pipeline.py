@@ -62,13 +62,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-vernacular-species",
         type=int,
-        default=800,
-        help="Máximo de especies consultadas en GBIF Species API para nombres comunes.",
+        default=1200,
+        help="Máximo de especies consultadas para nombres comunes.",
     )
     parser.add_argument(
         "--skip-vernacular-api",
         action="store_true",
-        help="Usa solo fallback de nombre científico, sin consultar vernacularNames.",
+        help="Usa solo fallback de nombre científico, sin consultar fuentes externas.",
+    )
+    parser.add_argument(
+        "--skip-wikidata",
+        action="store_true",
+        help="No consulta Wikidata SPARQL.",
     )
 
     return parser.parse_args()
@@ -86,7 +91,7 @@ def main() -> None:
         "download_strategy": "global_multi_source_gbif",
         "climate_source": "NASA POWER API + latitude fallback",
         "max_climate_points": args.max_climate_points,
-        "vernacular_names_source": "GBIF Species API + scientific_name fallback",
+        "vernacular_names_source": "GBIF Species API + Wikidata + scientific_name fallback",
         "max_vernacular_species": args.max_vernacular_species,
     }
 
@@ -149,19 +154,21 @@ def main() -> None:
     encyclopedia_df = build_species_encyclopedia(features_df)
     print(f"   Especies base en enciclopedia: {len(encyclopedia_df):,}", flush=True)
 
-    print("7/8 Añadiendo nombres comunes usando df.merge()...", flush=True)
+    print("7/8 Añadiendo nombres comunes usando GBIF + Wikidata + df.merge()...", flush=True)
     encyclopedia_df, vernacular_names_df = add_vernacular_names_to_encyclopedia(
         encyclopedia_df=encyclopedia_df,
         features_df=features_df,
         max_species=args.max_vernacular_species,
         use_api=not args.skip_vernacular_api,
+        use_wikidata=not args.skip_wikidata,
     )
     VERNACULAR_NAMES_PATH.parent.mkdir(parents=True, exist_ok=True)
     vernacular_names_df.to_csv(VERNACULAR_NAMES_PATH, index=False)
     ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
     encyclopedia_df.to_parquet(ENCYCLOPEDIA_PATH, index=False)
-    print(f"   Nombres comunes descargados: {len(vernacular_names_df):,}", flush=True)
+    print(f"   Nombres comunes reunidos: {len(vernacular_names_df):,}", flush=True)
     print(f"   Especies enriquecidas: {len(encyclopedia_df):,}", flush=True)
+    print(f"   Fuentes de nombres: {sorted(vernacular_names_df['source'].dropna().unique().tolist()) if not vernacular_names_df.empty else []}", flush=True)
     print(f"   Guardado vernacular names: {VERNACULAR_NAMES_PATH}", flush=True)
     print(f"   Guardado encyclopedia parquet: {ENCYCLOPEDIA_PATH}", flush=True)
 

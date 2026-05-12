@@ -1,16 +1,21 @@
 """Nombres comunes / vernacular names para especies.
 
-Este módulo crea una tabla de nombres comunes desde GBIF Species API y la une
-con la enciclopedia mediante `df.merge()`.
+Este módulo enriquece la enciclopedia con nombres humanos usando fuentes externas:
 
-Objetivo del proyecto:
-- Las personas buscan "leopardo", "jaguar", "frog", "mariposa".
-- GBIF suele trabajar con "Panthera pardus", "Panthera onca", etc.
-- Este módulo añade el puente entre nombres científicos y nombres humanos.
+1. GBIF Species API / vernacularNames.
+2. Wikidata P1843 / taxon common name.
+3. Wikidata labels.
+4. Wikidata aliases.
+5. Fallback por scientific_name.
+
+Después combina las fuentes con `pd.concat()` y une el resumen final con la
+enciclopedia mediante `df.merge()`.
 """
 
 from __future__ import annotations
 
+import re
+import time
 from dataclasses import dataclass
 
 import pandas as pd
@@ -18,6 +23,28 @@ import requests
 
 
 GBIF_SPECIES_URL = "https://api.gbif.org/v1/species"
+WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
+
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "BiodiversityFinder/1.0 "
+        "(educational project; contact: biodiversity-finder@example.com)"
+    )
+}
+
+LANGUAGE_MAP_2_TO_3 = {
+    "es": "spa",
+    "en": "eng",
+    "ru": "rus",
+    "uk": "ukr",
+    "pt": "por",
+    "it": "ita",
+    "ca": "cat",
+    "fr": "fra",
+    "de": "deu",
+}
+
+SUPPORTED_WIKIDATA_LANGUAGES = ["es", "en", "ru", "uk", "pt", "it", "ca", "fr", "de"]
 
 SUPPORTED_LANGUAGE_PRIORITY = [
     "spa",
@@ -39,6 +66,7 @@ class VernacularNameRecord:
     """Registro individual de nombre común."""
 
     scientific_name: str
+    canonical_scientific_name: str
     species_key: str
     language: str
     vernacular_name: str
@@ -49,11 +77,13 @@ def add_vernacular_names_to_encyclopedia(
     encyclopedia_df: pd.DataFrame,
     features_df: pd.DataFrame,
     *,
-    max_species: int = 800,
+    max_species: int = 1200,
     use_api: bool = True,
+    use_wikidata: bool = True,
+    pause_seconds: float = 0.05,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Añade nombres comunes a la enciclopedia usando df.merge().
+    Añade nombres comunes a la enciclopedia usando fuentes externas.
 
     Returns:
         Tupla: enciclopedia enriquecida, tabla larga de nombres comunes.
@@ -62,43 +92,76 @@ def add_vernacular_names_to_encyclopedia(
         empty_names_df = build_empty_vernacular_names()
         return encyclopedia_df.copy(), empty_names_df
 
+    working_encyclopedia_df = encyclopedia_df.copy()
+    working_encyclopedia_df["canonical_scientific_name"] = (
+        working_encyclopedia_df["scientific_name"].apply(canonicalize_scientific_name)
+    )
+
     species_lookup_df = build_species_lookup(
-        encyclopedia_df=encyclopedia_df,
+        encyclopedia_df=working_encyclopedia_df,
         features_df=features_df,
     )
 
-    vernacular_names_df = build_vernacular_names_table(
-        species_lookup_df=species_lookup_df,
-        max_species=max_species,
+    limited_lookup_df = species_lookup_df.head(max_species).copy()
+
+    gbif_names_df = build_gbif_vernacular_names_table(
+        species_lookup_df=limited_lookup_df,
         use_api=use_api,
+        pause_seconds=pause_seconds,
     )
 
-    vernacular_summary_df = summarize_vernacular_names(vernacular_names_df)
+    wikidata_names_df = build_wikidata_vernacular_names_table(
+        species_lookup_df=limited_lookup_df,
+        use_wikidata=use_wikidata,
+        pause_seconds=pause_seconds,
+    )
 
-    enriched_df = encyclopedia_df.merge(
+    fallback_names_df = build_fallback_names_table(limited_lookup_df)
+
+    all_names_df = combine_vernacular_sources(
+        gbif_names_df=gbif_names_df,
+        wikidata_names_df=wikidata_names_df,
+        fallback_names_df=fallback_names_df,
+    )
+
+    vernacular_summary_df = summarize_vernacular_names(all_names_df)
+
+    enriched_df = working_encyclopedia_df.merge(
         vernacular_summary_df,
-        on="scientific_name",
+        on="canonical_scientific_name",
         how="left",
-        validate="one_to_one",
+        validate="many_to_one",
     )
 
     enriched_df["vernacular_names"] = enriched_df["vernacular_names"].fillna("")
     enriched_df["vernacular_languages"] = enriched_df["vernacular_languages"].fillna("")
+    enriched_df["vernacular_sources"] = enriched_df["vernacular_sources"].fillna("")
 
     enriched_df = enrich_search_document_with_vernacular_names(enriched_df)
 
-    return enriched_df, vernacular_names_df
+    return enriched_df, all_names_df
+
+
+def canonicalize_scientific_name(scientific_name: object) -> str:
+    """
+    Convierte nombres científicos con autoría en nombres canónicos simples.
+
+    Ejemplos:
+    - Panthera leo (Linnaeus, 1758) -> Panthera leo
+    - Panthera leo melanochaita (C.E.H.Smith, 1858) -> Panthera leo melanochaita
+    """
+    text = str(scientific_name or "").strip()
+    text = re.sub(r"\s*\([^)]*\)", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
 
 
 def build_species_lookup(
     encyclopedia_df: pd.DataFrame,
     features_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Crea tabla species -> key para consultar GBIF Species API.
-
-    Intenta usar speciesKey, acceptedTaxonKey, taxonKey o key si existen.
-    """
+    """Crea tabla species -> key para consultar fuentes externas."""
     key_candidates = [
         "speciesKey",
         "acceptedTaxonKey",
@@ -110,30 +173,26 @@ def build_species_lookup(
 
     available_keys = [column for column in key_candidates if column in features_df.columns]
 
-    columns = ["scientific_name"]
-
-    if available_keys:
-        columns.append(available_keys[0])
-
-    lookup_df = encyclopedia_df[["scientific_name"]].drop_duplicates().copy()
+    lookup_df = (
+        encyclopedia_df[["scientific_name", "canonical_scientific_name"]]
+        .drop_duplicates()
+        .copy()
+    )
 
     if available_keys:
         key_column = available_keys[0]
-
-        feature_keys_df = (
-            features_df[["scientific_name", key_column]]
-            .dropna()
-            .drop_duplicates(subset=["scientific_name"])
-            .copy()
+        feature_keys_df = features_df[["scientific_name", key_column]].dropna().copy()
+        feature_keys_df["canonical_scientific_name"] = (
+            feature_keys_df["scientific_name"].apply(canonicalize_scientific_name)
         )
+        feature_keys_df = feature_keys_df.drop_duplicates(subset=["canonical_scientific_name"])
 
         lookup_df = lookup_df.merge(
-            feature_keys_df,
-            on="scientific_name",
+            feature_keys_df[["canonical_scientific_name", key_column]],
+            on="canonical_scientific_name",
             how="left",
-            validate="one_to_one",
+            validate="many_to_one",
         )
-
         lookup_df = lookup_df.rename(columns={key_column: "species_key"})
     else:
         lookup_df["species_key"] = ""
@@ -148,6 +207,7 @@ def build_empty_vernacular_names() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "scientific_name",
+            "canonical_scientific_name",
             "species_key",
             "language",
             "vernacular_name",
@@ -156,59 +216,44 @@ def build_empty_vernacular_names() -> pd.DataFrame:
     )
 
 
-def build_vernacular_names_table(
+def build_gbif_vernacular_names_table(
     species_lookup_df: pd.DataFrame,
     *,
-    max_species: int = 800,
     use_api: bool = True,
+    pause_seconds: float = 0.05,
 ) -> pd.DataFrame:
-    """Construye tabla larga de nombres comunes."""
-    if species_lookup_df.empty:
+    """Construye tabla larga de nombres comunes desde GBIF."""
+    if species_lookup_df.empty or not use_api:
         return build_empty_vernacular_names()
 
     records: list[VernacularNameRecord] = []
 
-    limited_lookup_df = species_lookup_df.head(max_species).copy()
-
-    for _, row in limited_lookup_df.iterrows():
+    for _, row in species_lookup_df.iterrows():
         scientific_name = str(row.get("scientific_name", "")).strip()
+        canonical_name = str(row.get("canonical_scientific_name", "")).strip()
         species_key = str(row.get("species_key", "")).strip()
 
-        if not scientific_name:
+        if not scientific_name or not species_key:
             continue
 
-        api_records: list[VernacularNameRecord] = []
-
-        if use_api and species_key:
-            api_records = fetch_gbif_vernacular_names(
+        records.extend(
+            fetch_gbif_vernacular_names(
                 scientific_name=scientific_name,
+                canonical_scientific_name=canonical_name,
                 species_key=species_key,
             )
+        )
 
-        if not api_records:
-            api_records = build_fallback_scientific_name_records(
-                scientific_name=scientific_name,
-                species_key=species_key,
-            )
+        if pause_seconds > 0:
+            time.sleep(pause_seconds)
 
-        records.extend(api_records)
-
-    if not records:
-        return build_empty_vernacular_names()
-
-    names_df = pd.DataFrame([record.__dict__ for record in records])
-    names_df["vernacular_name"] = names_df["vernacular_name"].astype(str).str.strip()
-    names_df = names_df[names_df["vernacular_name"] != ""]
-    names_df = names_df.drop_duplicates(
-        subset=["scientific_name", "language", "vernacular_name"]
-    )
-
-    return names_df.reset_index(drop=True)
+    return records_to_dataframe(records)
 
 
 def fetch_gbif_vernacular_names(
     *,
     scientific_name: str,
+    canonical_scientific_name: str,
     species_key: str,
     timeout: int = 20,
 ) -> list[VernacularNameRecord]:
@@ -216,29 +261,29 @@ def fetch_gbif_vernacular_names(
     url = f"{GBIF_SPECIES_URL}/{species_key}/vernacularNames"
 
     try:
-        response = requests.get(url, timeout=timeout)
+        response = requests.get(url, headers=REQUEST_HEADERS, timeout=timeout)
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError):
         return []
 
     results = payload.get("results", [])
-
     records: list[VernacularNameRecord] = []
 
     for item in results:
         if not isinstance(item, dict):
             continue
 
-        vernacular_name = str(item.get("vernacularName", "")).strip()
+        vernacular_name = clean_vernacular_name(item.get("vernacularName", ""))
         language = str(item.get("language", "")).strip().lower()
 
-        if not vernacular_name:
+        if not is_good_vernacular_name(vernacular_name, canonical_scientific_name):
             continue
 
         records.append(
             VernacularNameRecord(
                 scientific_name=scientific_name,
+                canonical_scientific_name=canonical_scientific_name,
                 species_key=species_key,
                 language=language,
                 vernacular_name=vernacular_name,
@@ -249,65 +294,223 @@ def fetch_gbif_vernacular_names(
     return sort_vernacular_records(records)
 
 
-def build_fallback_scientific_name_records(
+def build_wikidata_vernacular_names_table(
+    species_lookup_df: pd.DataFrame,
+    *,
+    use_wikidata: bool = True,
+    pause_seconds: float = 0.05,
+) -> pd.DataFrame:
+    """Construye tabla larga de nombres comunes desde Wikidata."""
+    if species_lookup_df.empty or not use_wikidata:
+        return build_empty_vernacular_names()
+
+    records: list[VernacularNameRecord] = []
+
+    for _, row in species_lookup_df.iterrows():
+        scientific_name = str(row.get("scientific_name", "")).strip()
+        canonical_name = str(row.get("canonical_scientific_name", "")).strip()
+        species_key = str(row.get("species_key", "")).strip()
+
+        if not canonical_name:
+            continue
+
+        records.extend(
+            fetch_wikidata_vernacular_names(
+                scientific_name=scientific_name,
+                canonical_scientific_name=canonical_name,
+                species_key=species_key,
+            )
+        )
+
+        if pause_seconds > 0:
+            time.sleep(pause_seconds)
+
+    return records_to_dataframe(records)
+
+
+def fetch_wikidata_vernacular_names(
     *,
     scientific_name: str,
+    canonical_scientific_name: str,
     species_key: str,
+    timeout: int = 30,
 ) -> list[VernacularNameRecord]:
+    """Descarga nombres comunes desde Wikidata SPARQL."""
+    query = build_wikidata_query(canonical_scientific_name)
+
+    try:
+        response = requests.get(
+            WIKIDATA_SPARQL_URL,
+            params={"query": query, "format": "json"},
+            headers=REQUEST_HEADERS,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError):
+        return []
+
+    bindings = payload.get("results", {}).get("bindings", [])
+    records: list[VernacularNameRecord] = []
+
+    for binding in bindings:
+        for variable_name, source_name in [
+            ("commonName", "Wikidata P1843"),
+            ("label", "Wikidata label"),
+            ("alias", "Wikidata alias"),
+        ]:
+            value_data = binding.get(variable_name)
+
+            if not isinstance(value_data, dict):
+                continue
+
+            vernacular_name = clean_vernacular_name(value_data.get("value", ""))
+            language = normalize_language_code(value_data.get("xml:lang", ""))
+
+            if not language:
+                language = normalize_language_code(value_data.get("lang", ""))
+
+            if not is_good_vernacular_name(vernacular_name, canonical_scientific_name):
+                continue
+
+            records.append(
+                VernacularNameRecord(
+                    scientific_name=scientific_name,
+                    canonical_scientific_name=canonical_scientific_name,
+                    species_key=species_key,
+                    language=language,
+                    vernacular_name=vernacular_name,
+                    source=source_name,
+                )
+            )
+
+    return sort_vernacular_records(records)
+
+
+def build_wikidata_query(canonical_scientific_name: str) -> str:
+    """Construye consulta SPARQL para Wikidata por nombre científico P225."""
+    escaped_name = canonical_scientific_name.replace("\\", "\\\\").replace('"', '\\"')
+    language_filter = ", ".join(f'"{language}"' for language in SUPPORTED_WIKIDATA_LANGUAGES)
+
+    return f"""
+    SELECT ?item ?commonName ?label ?alias WHERE {{
+      ?item wdt:P225 "{escaped_name}".
+      OPTIONAL {{
+        ?item wdt:P1843 ?commonName.
+        FILTER(LANG(?commonName) IN ({language_filter}))
+      }}
+      OPTIONAL {{
+        ?item rdfs:label ?label.
+        FILTER(LANG(?label) IN ({language_filter}))
+      }}
+      OPTIONAL {{
+        ?item skos:altLabel ?alias.
+        FILTER(LANG(?alias) IN ({language_filter}))
+      }}
+    }}
+    LIMIT 200
     """
-    Fallback mínimo para que search_document siempre tenga el nombre científico.
-    """
-    return [
+
+
+def build_fallback_names_table(species_lookup_df: pd.DataFrame) -> pd.DataFrame:
+    """Crea fallback de nombre científico para todas las especies."""
+    if species_lookup_df.empty:
+        return build_empty_vernacular_names()
+
+    records = [
         VernacularNameRecord(
-            scientific_name=scientific_name,
-            species_key=species_key,
+            scientific_name=str(row.get("scientific_name", "")).strip(),
+            canonical_scientific_name=str(row.get("canonical_scientific_name", "")).strip(),
+            species_key=str(row.get("species_key", "")).strip(),
             language="lat",
-            vernacular_name=scientific_name,
+            vernacular_name=str(row.get("scientific_name", "")).strip(),
             source="scientific_name_fallback",
         )
+        for _, row in species_lookup_df.iterrows()
+        if str(row.get("scientific_name", "")).strip()
     ]
 
+    return records_to_dataframe(records)
 
-def sort_vernacular_records(
-    records: list[VernacularNameRecord],
-) -> list[VernacularNameRecord]:
-    """Ordena nombres comunes priorizando idiomas útiles para el proyecto."""
-    priority = {
-        language: index
-        for index, language in enumerate(SUPPORTED_LANGUAGE_PRIORITY)
-    }
 
-    return sorted(
-        records,
-        key=lambda record: (
-            priority.get(record.language, 999),
-            record.vernacular_name.lower(),
-        ),
+def combine_vernacular_sources(
+    *,
+    gbif_names_df: pd.DataFrame,
+    wikidata_names_df: pd.DataFrame,
+    fallback_names_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Combina fuentes de nombres comunes con pd.concat()."""
+    all_names_df = pd.concat(
+        [
+            gbif_names_df,
+            wikidata_names_df,
+            fallback_names_df,
+        ],
+        ignore_index=True,
     )
+
+    if all_names_df.empty:
+        return build_empty_vernacular_names()
+
+    all_names_df["vernacular_name"] = all_names_df["vernacular_name"].astype(str).str.strip()
+    all_names_df = all_names_df[all_names_df["vernacular_name"] != ""]
+    all_names_df = all_names_df.drop_duplicates(
+        subset=["canonical_scientific_name", "language", "vernacular_name", "source"]
+    )
+
+    return all_names_df.reset_index(drop=True)
+
+
+def records_to_dataframe(records: list[VernacularNameRecord]) -> pd.DataFrame:
+    """Convierte registros en DataFrame."""
+    if not records:
+        return build_empty_vernacular_names()
+
+    names_df = pd.DataFrame([record.__dict__ for record in records])
+    names_df["vernacular_name"] = names_df["vernacular_name"].astype(str).str.strip()
+    names_df = names_df[names_df["vernacular_name"] != ""]
+    names_df = names_df.drop_duplicates(
+        subset=["canonical_scientific_name", "language", "vernacular_name", "source"]
+    )
+
+    return names_df.reset_index(drop=True)
 
 
 def summarize_vernacular_names(vernacular_names_df: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa nombres comunes por especie para poder hacer merge one_to_one."""
+    """Agrupa nombres comunes por especie canónica para poder hacer merge."""
     if vernacular_names_df.empty:
         return pd.DataFrame(
             columns=[
-                "scientific_name",
+                "canonical_scientific_name",
                 "vernacular_names",
                 "vernacular_languages",
+                "vernacular_sources",
             ]
         )
 
+    sorted_df = vernacular_names_df.copy()
+    sorted_df["language_priority"] = sorted_df["language"].map(
+        {language: index for index, language in enumerate(SUPPORTED_LANGUAGE_PRIORITY)}
+    ).fillna(999)
+    sorted_df = sorted_df.sort_values(
+        ["canonical_scientific_name", "language_priority", "vernacular_name"]
+    )
+
     grouped_df = (
-        vernacular_names_df
-        .groupby("scientific_name", as_index=False)
+        sorted_df
+        .groupby("canonical_scientific_name", as_index=False)
         .agg(
             vernacular_names=(
                 "vernacular_name",
-                lambda values: " | ".join(sorted(set(map(str, values)))),
+                lambda values: " | ".join(unique_preserve_order(values)),
             ),
             vernacular_languages=(
                 "language",
-                lambda values: " | ".join(sorted(set(map(str, values)))),
+                lambda values: " | ".join(unique_preserve_order(values)),
+            ),
+            vernacular_sources=(
+                "source",
+                lambda values: " | ".join(unique_preserve_order(values)),
             ),
         )
     )
@@ -347,16 +550,115 @@ def add_common_names_to_profile_text(row: pd.Series) -> str:
     if not vernacular_names:
         return profile_text
 
-    short_names = " / ".join(
+    public_names = [
         name.strip()
-        for name in vernacular_names.split("|")[:5]
+        for name in vernacular_names.split("|")
         if name.strip()
-    )
+        and str(row.get("scientific_name", "")).strip() != name.strip()
+    ]
 
-    if not short_names:
+    if not public_names:
         return profile_text
+
+    short_names = " / ".join(public_names[:8])
 
     if "Nombres comunes:" in profile_text:
         return profile_text
 
     return f"{profile_text} Nombres comunes: {short_names}."
+
+
+def clean_vernacular_name(value: object) -> str:
+    """Limpia un nombre común."""
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+
+    return text
+
+
+def is_good_vernacular_name(
+    vernacular_name: str,
+    canonical_scientific_name: str,
+) -> bool:
+    """Filtra valores vacíos o claramente inútiles."""
+    if not vernacular_name:
+        return False
+
+    if len(vernacular_name) < 2:
+        return False
+
+    lower_name = vernacular_name.lower()
+    lower_scientific_name = canonical_scientific_name.lower()
+
+    bad_markers = [
+        "http://",
+        "https://",
+        "wikidata",
+        "taxon",
+        "species",
+        "undefined",
+        "unknown",
+    ]
+
+    if any(marker in lower_name for marker in bad_markers):
+        return False
+
+    # El scientific name también se guarda como fallback, pero no desde
+    # fuentes de nombres comunes.
+    if lower_name == lower_scientific_name:
+        return False
+
+    return True
+
+
+def normalize_language_code(language: object) -> str:
+    """Convierte código de idioma a ISO 639-3 cuando sea posible."""
+    code = str(language or "").strip().lower()
+
+    if not code:
+        return ""
+
+    if code in LANGUAGE_MAP_2_TO_3:
+        return LANGUAGE_MAP_2_TO_3[code]
+
+    return code
+
+
+def sort_vernacular_records(
+    records: list[VernacularNameRecord],
+) -> list[VernacularNameRecord]:
+    """Ordena nombres comunes priorizando idiomas útiles para el proyecto."""
+    priority = {
+        language: index
+        for index, language in enumerate(SUPPORTED_LANGUAGE_PRIORITY)
+    }
+
+    return sorted(
+        records,
+        key=lambda record: (
+            priority.get(record.language, 999),
+            record.vernacular_name.lower(),
+        ),
+    )
+
+
+def unique_preserve_order(values: pd.Series) -> list[str]:
+    """Devuelve valores únicos manteniendo orden."""
+    result = []
+    seen = set()
+
+    for value in values:
+        text = str(value).strip()
+
+        if not text:
+            continue
+
+        key = text.lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(text)
+
+    return result
