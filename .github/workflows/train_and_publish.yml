@@ -14,7 +14,7 @@ on:
       min_class_records:
         description: "Minimum records per taxon class after cleaning"
         required: false
-        default: "20"
+        default: "3"
       max_climate_points:
         description: "Maximum unique coordinate points to enrich with NASA POWER climate data"
         required: false
@@ -40,19 +40,25 @@ on:
         required: false
         default: "false"
         type: choice
-        options: ["false", "true"]
+        options:
+          - "false"
+          - "true"
       skip_vernacular_api:
         description: "Skip GBIF Species API for common names"
         required: false
         default: "false"
         type: choice
-        options: ["false", "true"]
+        options:
+          - "false"
+          - "true"
       skip_wikidata:
         description: "Skip Wikidata SPARQL/Search for common names"
         required: false
         default: "false"
         type: choice
-        options: ["false", "true"]
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -66,6 +72,8 @@ jobs:
       PYTHONPATH: .
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       IUCN_API_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+      IUCN_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -89,7 +97,7 @@ jobs:
         id: build-command
         shell: bash
         run: |
-          COMMAND="python scripts/run_pipeline.py"
+          COMMAND="python -u scripts/run_pipeline.py"
           COMMAND="$COMMAND --country '${{ github.event.inputs.country }}'"
           COMMAND="$COMMAND --max-records '${{ github.event.inputs.max_records }}'"
           COMMAND="$COMMAND --min-class-records '${{ github.event.inputs.min_class_records }}'"
@@ -113,6 +121,10 @@ jobs:
       - name: Run training pipeline
         run: |
           ${{ steps.build-command.outputs.command }}
+
+      - name: Check IUCN categories in generated artifacts
+        run: |
+          python -u scripts/check_iucn_artifact.py
 
       - name: Upload artifacts to Hugging Face
         run: |

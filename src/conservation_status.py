@@ -1,15 +1,12 @@
-"""Official IUCN Red List conservation enrichment for the species encyclopedia.
+"""Official IUCN Red List conservation enrichment for Biodiversity Finder.
 
-This module keeps the project architecture simple and honest:
-
-- GBIF is used for observations and taxonomy.
-- IUCN Red List is used for conservation status.
-- If IUCN data is not configured or not found, the code returns ``NO_DATA``.
-- It never invents ``LC`` as a fallback.
-
-The output is joined back to the encyclopedia with ``pd.merge()``.
+Architecture:
+- GBIF remains the source for observations, coordinates and taxonomy.
+- IUCN Red List is the source for conservation status.
+- If a token is missing, an API call fails, or a species is not found, the pipeline
+  returns ``NO_DATA``. It never invents ``LC`` as a fallback.
+- The resulting conservation table is joined back with ``pd.merge()``.
 """
-
 from __future__ import annotations
 
 import os
@@ -24,6 +21,7 @@ import pandas as pd
 import requests
 
 IUCN_API_BASE_URL = "https://api.iucnredlist.org/api/v4"
+IUCN_API_V3_BASE_URL = "https://apiv3.iucnredlist.org/api/v3"
 IUCN_TOKEN_ENV_NAMES = ("IUCN_API_TOKEN", "IUCN_TOKEN")
 
 IUCN_CATEGORY_LABELS = {
@@ -67,12 +65,7 @@ def add_conservation_status_to_encyclopedia(
     max_api_species: int | None = None,
     request_delay_seconds: float = 0.05,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Add official IUCN status fields to the encyclopedia using ``pd.merge()``.
-
-    If the API token is unavailable, the function still returns a conservation
-    table with ``NO_DATA`` rows. This keeps the pipeline and tests stable while
-    avoiding fake conservation claims.
-    """
+    """Add official IUCN status fields to the encyclopedia using ``pd.merge()``."""
 
     if encyclopedia_df.empty:
         conservation_df = build_empty_conservation_table()
@@ -81,7 +74,8 @@ def add_conservation_status_to_encyclopedia(
     working_df = encyclopedia_df.copy()
     if "canonical_scientific_name" not in working_df.columns:
         working_df["canonical_scientific_name"] = working_df.get(
-            "scientific_name", pd.Series([""] * len(working_df), index=working_df.index)
+            "scientific_name",
+            pd.Series([""] * len(working_df), index=working_df.index),
         ).astype(str)
 
     working_df["canonical_scientific_name"] = working_df[
@@ -101,7 +95,6 @@ def add_conservation_status_to_encyclopedia(
         how="left",
         validate="many_to_one",
     )
-
     enriched_df = fill_missing_conservation_columns(enriched_df)
     return enriched_df, conservation_df
 
@@ -135,16 +128,21 @@ def build_conservation_status_table(
     """Build a one-row-per-species IUCN status table.
 
     Lookup priority:
-    1. Already available IUCN/GBIF status in the input row.
-    2. Cached IUCN lookup file.
-    3. IUCN API v4, if ``IUCN_API_TOKEN`` or ``IUCN_TOKEN`` exists.
+    1. Existing official-looking IUCN code in the input row.
+    2. Cached official IUCN records.
+    3. Live IUCN API lookup if ``IUCN_API_TOKEN`` or ``IUCN_TOKEN`` exists.
     4. Honest ``NO_DATA`` fallback.
+
+    Important: cached ``NO_DATA`` rows do not block a new API lookup when a token is
+    available. This prevents old no-token runs from poisoning future runs.
     """
 
     if encyclopedia_df.empty:
         return build_empty_conservation_table()
 
     token = get_iucn_token()
+    print(f"[IUCN] Token configured: {'yes' if token else 'no'}", flush=True)
+
     cache_df = load_iucn_cache(cache_path)
     cache_records = {
         str(row["canonical_scientific_name"]): row.to_dict()
@@ -167,8 +165,16 @@ def build_conservation_status_table(
     else:
         lookup_names = set(unique_names)
 
+    print(f"[IUCN] Unique species: {len(unique_names):,}", flush=True)
+    print(f"[IUCN] Species allowed for API lookup: {len(lookup_names):,}", flush=True)
+    if cache_path:
+        print(f"[IUCN] Cache path: {cache_path}", flush=True)
+
     records: list[ConservationRecord] = []
     new_cache_rows: list[dict[str, Any]] = []
+    official_count = 0
+    no_data_count = 0
+    api_attempts = 0
 
     indexed_rows = (
         encyclopedia_df.drop_duplicates("canonical_scientific_name")
@@ -189,34 +195,58 @@ def build_conservation_status_table(
             )
             records.append(record)
             new_cache_rows.append(record_to_cache_row(record))
+            official_count += 1
             continue
 
         cached = cache_records.get(canonical_name)
-        if cached:
-            records.append(record_from_cache_row(cached))
+        cached_category = normalize_iucn_category(cached.get("iucn_category")) if cached else ""
+        if cached and cached_category and cached_category != "NO_DATA":
+            record = record_from_cache_row(cached)
+            records.append(record)
+            official_count += int(record.iucn_is_official)
+            no_data_count += int(not record.iucn_is_official)
             continue
 
         if token and canonical_name in lookup_names:
+            api_attempts += 1
             api_record = fetch_iucn_record_by_scientific_name(canonical_name, token)
             if api_record is not None:
                 records.append(api_record)
                 new_cache_rows.append(record_to_cache_row(api_record))
+                official_count += int(api_record.iucn_is_official)
                 if request_delay_seconds > 0:
                     time.sleep(request_delay_seconds)
                 continue
+            if request_delay_seconds > 0:
+                time.sleep(request_delay_seconds)
 
         no_data_record = build_no_data_record(canonical_name)
         records.append(no_data_record)
-        new_cache_rows.append(record_to_cache_row(no_data_record))
+        # Cache NO_DATA only when a token existed and lookup was actually attempted.
+        # If no token exists, caching NO_DATA would poison a future official run.
+        if token and canonical_name in lookup_names:
+            new_cache_rows.append(record_to_cache_row(no_data_record))
+        no_data_count += 1
 
     conservation_df = pd.DataFrame([record.__dict__ for record in records])
     if conservation_df.empty:
         conservation_df = build_empty_conservation_table()
     else:
         conservation_df = conservation_df.drop_duplicates("canonical_scientific_name")
-        conservation_df = fill_missing_conservation_columns(conservation_df)
 
+    conservation_df = fill_missing_conservation_columns(conservation_df)
     save_iucn_cache(cache_path, cache_df, pd.DataFrame(new_cache_rows))
+
+    print(f"[IUCN] API attempts: {api_attempts:,}", flush=True)
+    print(f"[IUCN] Official statuses found: {official_count:,}", flush=True)
+    print(f"[IUCN] NO_DATA rows: {no_data_count:,}", flush=True)
+    if token and api_attempts > 0 and official_count == 0:
+        print(
+            "[IUCN][WARNING] Token is configured and API was attempted, but 0 official statuses were found. "
+            "Check endpoint/authentication and sample scientific names.",
+            flush=True,
+        )
+
     return conservation_df.reset_index(drop=True)
 
 
@@ -231,12 +261,7 @@ def get_iucn_token() -> str:
 
 
 def clean_scientific_name(value: object) -> str:
-    """Normalize a scientific name to a binomial when possible.
-
-    Examples:
-    ``Panthera leo (Linnaeus, 1758)`` -> ``Panthera leo``.
-    ``Felis chaus Schreber, 1777`` -> ``Felis chaus``.
-    """
+    """Normalize a scientific name to a binomial when possible."""
 
     text = str(value or "").strip()
     if not text:
@@ -260,7 +285,7 @@ def extract_existing_iucn_status(row: dict[str, Any] | pd.Series) -> str:
         "category",
         "conservation_status",
     ]:
-        value = str(row.get(column, "") or "").strip().upper()
+        value = normalize_iucn_category(row.get(column, ""))
         if value in VALID_IUCN_CODES:
             return value
     return ""
@@ -272,65 +297,146 @@ def fetch_iucn_record_by_scientific_name(
     *,
     timeout_seconds: int = 20,
 ) -> ConservationRecord | None:
-    """Fetch the latest IUCN assessment for a scientific name via API v4.
+    """Fetch the latest IUCN assessment for a scientific name.
 
-    The parser is intentionally defensive because the API response can expose
-    the category either at taxon level or inside an ``assessments`` list.
+    The main endpoint is IUCN API v4. A v3 fallback is kept only as a deadline
+    safety net because many public examples and older tokens still expose that
+    shape. If v3 is unavailable, the code simply returns ``None``.
     """
 
-    encoded_name = quote(scientific_name, safe="")
-    url = f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_name}"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    try:
-        response = requests.get(url, headers=headers, timeout=timeout_seconds)
-        if response.status_code == 404:
-            return None
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException:
-        return None
-    except ValueError:
-        return None
-
-    category = extract_iucn_category_from_payload(payload)
+    payload = fetch_iucn_payload(scientific_name, token, timeout_seconds=timeout_seconds)
+    category = extract_iucn_category_from_payload(payload) if payload else ""
     if not category:
         return None
 
-    return build_official_record(
-        scientific_name,
-        category,
-        source="IUCN Red List",
-        note="Estado de conservación obtenido desde IUCN Red List API v4.",
-    )
+    source = "IUCN Red List"
+    note = "Estado de conservación obtenido desde IUCN Red List API."
+    return build_official_record(scientific_name, category, source=source, note=note)
+
+
+def fetch_iucn_payload(
+    scientific_name: str,
+    token: str,
+    *,
+    timeout_seconds: int = 20,
+) -> Any | None:
+    """Try known IUCN API shapes and authentication styles defensively."""
+
+    encoded_path = quote(scientific_name, safe="")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "User-Agent": "biodiversity-finder-training/1.0",
+    }
+
+    requests_to_try: list[tuple[str, dict[str, str], dict[str, str] | None]] = [
+        (
+            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
+            headers,
+            None,
+        ),
+        (
+            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
+            {"Authorization": token, "Accept": "application/json"},
+            None,
+        ),
+        (
+            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
+            {"Accept": "application/json"},
+            {"token": token},
+        ),
+        (
+            f"{IUCN_API_V3_BASE_URL}/species/{encoded_path}",
+            {"Accept": "application/json"},
+            {"token": token},
+        ),
+    ]
+
+    for url, request_headers, params in requests_to_try:
+        try:
+            response = requests.get(
+                url,
+                headers=request_headers,
+                params=params,
+                timeout=timeout_seconds,
+            )
+            if response.status_code in {401, 403, 404}:
+                continue
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException:
+            continue
+        except ValueError:
+            continue
+
+    return None
 
 
 def extract_iucn_category_from_payload(payload: Any) -> str:
     """Extract a Red List category code from several possible JSON shapes."""
 
-    if not isinstance(payload, dict):
+    if payload is None:
         return ""
 
-    direct_category = normalize_iucn_category(payload.get("red_list_category"))
-    if direct_category:
-        return direct_category
+    direct = _extract_category_from_known_keys(payload)
+    if direct:
+        return direct
 
-    direct_category = normalize_iucn_category(payload.get("category"))
-    if direct_category:
-        return direct_category
+    # v3 usually returns {"result": [{"category": "LC", ...}]}
+    if isinstance(payload, dict):
+        for collection_key in ["assessments", "result", "results", "data", "items"]:
+            value = payload.get(collection_key)
+            category = _extract_category_from_collection(value)
+            if category:
+                return category
 
-    assessments = payload.get("assessments")
-    if isinstance(assessments, dict):
-        assessments = assessments.get("data") or assessments.get("results") or []
+    return ""
 
-    if isinstance(assessments, list):
-        for assessment in assessments:
-            if not isinstance(assessment, dict):
-                continue
-            for key in ["red_list_category", "category", "redlist_category"]:
-                category = normalize_iucn_category(assessment.get(key))
-                if category:
-                    return category
+
+def _extract_category_from_collection(value: Any) -> str:
+    """Extract category from a list/dict collection."""
+
+    if isinstance(value, dict):
+        for nested_key in ["data", "results", "items", "assessments", "result"]:
+            category = _extract_category_from_collection(value.get(nested_key))
+            if category:
+                return category
+        return _extract_category_from_known_keys(value)
+
+    if isinstance(value, list):
+        for item in value:
+            category = _extract_category_from_known_keys(item)
+            if category:
+                return category
+            category = _extract_category_from_collection(item)
+            if category:
+                return category
+
+    return ""
+
+
+def _extract_category_from_known_keys(value: Any) -> str:
+    """Extract category from common IUCN key names."""
+
+    if not isinstance(value, dict):
+        return normalize_iucn_category(value)
+
+    for key in [
+        "red_list_category",
+        "redlist_category",
+        "redListCategory",
+        "category",
+        "code",
+    ]:
+        category = normalize_iucn_category(value.get(key))
+        if category:
+            return category
+
+    # Some v4 payloads keep the object under taxon/latest_assessment fields.
+    for key in ["latest_assessment", "assessment", "taxon"]:
+        category = _extract_category_from_known_keys(value.get(key))
+        if category:
+            return category
 
     return ""
 
@@ -346,6 +452,17 @@ def normalize_iucn_category(value: Any) -> str:
         return ""
 
     text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    text = text.replace("CRITICALLY ENDANGERED", "CR")
+    text = text.replace("ENDANGERED", "EN") if text == "ENDANGERED" else text
+    text = text.replace("VULNERABLE", "VU")
+    text = text.replace("NEAR THREATENED", "NT")
+    text = text.replace("LEAST CONCERN", "LC")
+    text = text.replace("DATA DEFICIENT", "DD")
+    text = text.replace("EXTINCT IN THE WILD", "EW")
+    text = text.replace("EXTINCT", "EX") if text == "EXTINCT" else text
+
     if text in VALID_IUCN_CODES:
         return text
 
@@ -392,8 +509,8 @@ def build_no_data_record(canonical_name: str) -> ConservationRecord:
         conservation_category=IUCN_CATEGORY_LABELS["NO_DATA"],
         conservation_source="No IUCN data",
         conservation_note=(
-            "No se encontró estado oficial IUCN para esta especie en esta ejecución "
-            "del pipeline. No se usa una categoría LC inventada como fallback."
+            "No se encontró estado oficial IUCN para esta especie en esta ejecución del pipeline. "
+            "No se usa una categoría LC inventada como fallback."
         ),
     )
 
@@ -430,11 +547,9 @@ def load_iucn_cache(cache_path: str | Path | None) -> pd.DataFrame:
 
     if cache_path is None:
         return build_empty_conservation_table()
-
     path = Path(cache_path)
     if not path.exists():
         return build_empty_conservation_table()
-
     try:
         if path.suffix.lower() == ".parquet":
             return pd.read_parquet(path)
@@ -452,14 +567,11 @@ def save_iucn_cache(
 
     if cache_path is None or new_cache_df.empty:
         return
-
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
     combined_df = pd.concat([existing_cache_df, new_cache_df], ignore_index=True)
     combined_df = combined_df.drop_duplicates("canonical_scientific_name", keep="last")
     combined_df = fill_missing_conservation_columns(combined_df)
-
     if path.suffix.lower() == ".parquet":
         combined_df.to_parquet(path, index=False)
     else:
@@ -479,9 +591,8 @@ def record_from_cache_row(row: dict[str, Any]) -> ConservationRecord:
     category = normalize_iucn_category(row.get("iucn_category")) or "NO_DATA"
     label = str(row.get("iucn_status_label", "") or IUCN_CATEGORY_LABELS.get(category, category))
     source = str(row.get("iucn_source", "") or row.get("conservation_source", "") or "No IUCN data")
-    is_official = bool(row.get("iucn_is_official", category != "NO_DATA"))
+    is_official = bool(row.get("iucn_is_official", category != "NO_DATA")) and category != "NO_DATA"
     note = str(row.get("conservation_note", "") or "Estado leído desde cache IUCN.")
-
     return ConservationRecord(
         canonical_scientific_name=canonical_name,
         iucn_category=category,
