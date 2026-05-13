@@ -38,8 +38,24 @@ def add_search_tags_to_encyclopedia(encyclopedia_df: pd.DataFrame) -> pd.DataFra
     # Keep a general text document for fallback name/taxonomy search only.
     # Do not append tags_de_busqueda here: structured tags are applied through
     # df.loc in the app before TF-IDF fallback search.
-    if "search_document" not in tagged_df.columns:
-        tagged_df["search_document"] = build_name_search_document(tagged_df)
+    #
+    # Important: even if a previous pipeline step already created
+    # search_document, we still append the canonical name/common-name document.
+    # Otherwise fallback search by scientific/common name can silently disappear.
+    name_search_document = build_name_search_document(tagged_df)
+    if "search_document" in tagged_df.columns:
+        existing_document = tagged_df["search_document"].fillna("").astype(str)
+        tagged_df["search_document"] = existing_document + " " + name_search_document
+    else:
+        tagged_df["search_document"] = name_search_document
+
+    tagged_df["search_document"] = (
+        tagged_df["search_document"]
+        .fillna("")
+        .astype(str)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
 
     return tagged_df
 
