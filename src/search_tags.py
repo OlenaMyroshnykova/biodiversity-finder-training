@@ -131,7 +131,7 @@ def infer_habitat_tag(row: pd.Series) -> str:
         return "wetland river tropical rio humedo tropical"
 
     if any(term in text for term in ["reptilia", "serpentes", "iguana", "lacertilia"]):
-        return "forest desert savanna tropical bosque desierto sabana"
+        return "forest desert tropical bosque desierto"
 
     if any(term in text for term in ["actinopterygii", "teleostei", "pisces"]):
         return "ocean river lake aquatic oceano rio lago acuatico"
@@ -146,10 +146,10 @@ def infer_habitat_tag(row: pd.Series) -> str:
         return "forest terrestrial bosque terrestre"
 
     if any(term in text for term in ["accipitridae"]):
-        return "mountain forest savanna montaña bosque sabana"
+        return "mountain forest montaña bosque"
 
     if any(term in text for term in ["mammalia", "mammal"]):
-        return "terrestrial forest savanna bosque sabana"
+        return "terrestrial forest bosque"  # sabana solo para ungulados específicos
 
     return "unknown"
 
@@ -180,10 +180,10 @@ def infer_size_tag(row: pd.Series) -> str:
         return "large grande"
 
     if any(term in text for term in ["reptilia", "serpentes"]):
-        return "small medium large pequeño mediano grande"
+        return "medium mediano"  # tamaño predominante en Reptilia
 
     if any(term in text for term in ["actinopterygii", "teleostei"]):
-        return "small medium large pequeño mediano grande"
+        return "small pequeño"  # mayoría de peces óseos son pequeños
 
     if any(term in text for term in ["arachnida", "araneae"]):
         return "small tiny pequeño mini"
