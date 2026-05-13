@@ -189,30 +189,37 @@ def extract_model_summary(
     classification_report_df: pd.DataFrame,
 ) -> dict[str, float | None]:
     """Extrae métricas resumen desde metrics.json y classification_report.csv."""
+    # Preferimos leer macro_f1/weighted_f1 directamente de metrics.json
+    # (guardados por model_training.py). El classification_report es fallback.
     summary = {
-        "accuracy": get_metric_from_dict(metrics, "accuracy"),
-        "train_rows": get_metric_from_dict(metrics, "train_rows"),
-        "test_rows": get_metric_from_dict(metrics, "test_rows"),
-        "classes": get_metric_from_dict(metrics, "classes"),
-        "macro_precision": None,
-        "macro_recall": None,
-        "macro_f1": None,
-        "weighted_f1": None,
+        "accuracy":        get_metric_from_dict(metrics, "accuracy"),
+        "macro_f1":        get_metric_from_dict(metrics, "macro_f1"),
+        "macro_precision": get_metric_from_dict(metrics, "macro_precision"),
+        "macro_recall":    get_metric_from_dict(metrics, "macro_recall"),
+        "weighted_f1":     get_metric_from_dict(metrics, "weighted_f1"),
+        "train_rows":      get_metric_from_dict(metrics, "train_rows"),
+        "test_rows":       get_metric_from_dict(metrics, "test_rows"),
+        "classes":         get_metric_from_dict(metrics, "classes"),
     }
 
+    # Fallback: si no están en metrics.json, leer del classification_report
     if classification_report_df.empty or "label" not in classification_report_df.columns:
         return summary
 
-    macro_row = get_row_by_label(classification_report_df, "macro avg")
+    macro_row    = get_row_by_label(classification_report_df, "macro avg")
     weighted_row = get_row_by_label(classification_report_df, "weighted avg")
 
     if macro_row is not None:
-        summary["macro_precision"] = get_numeric_value(macro_row, "precision")
-        summary["macro_recall"] = get_numeric_value(macro_row, "recall")
-        summary["macro_f1"] = get_numeric_value(macro_row, "f1-score")
+        if summary["macro_precision"] is None:
+            summary["macro_precision"] = get_numeric_value(macro_row, "precision")
+        if summary["macro_recall"] is None:
+            summary["macro_recall"] = get_numeric_value(macro_row, "recall")
+        if summary["macro_f1"] is None:
+            summary["macro_f1"] = get_numeric_value(macro_row, "f1-score")
 
     if weighted_row is not None:
-        summary["weighted_f1"] = get_numeric_value(weighted_row, "f1-score")
+        if summary["weighted_f1"] is None:
+            summary["weighted_f1"] = get_numeric_value(weighted_row, "f1-score")
 
     return summary
 

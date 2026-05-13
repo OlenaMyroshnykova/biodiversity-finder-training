@@ -30,6 +30,28 @@ def calculate_coordinate_precision(row: pd.Series) -> str:
     return 'baja'
 
 def build_scientific_text(row: pd.Series) -> str:
-    """Construye texto científico para el vectorizador TF-IDF."""
-    text_parts = [row.get('scientific_name',''), row.get('kingdom',''), row.get('phylum',''), row.get('taxon_class',''), row.get('taxon_order',''), row.get('family',''), row.get('genus',''), row.get('species',''), row.get('basis_of_record','')]
-    return ' '.join(str(part) for part in text_parts if not pd.isna(part))
+    """Construye texto científico para el vectorizador TF-IDF.
+
+    IMPORTANTE: taxon_class está excluido deliberadamente.
+    taxon_label = taxon_class, por lo que incluirlo causaría data leakage:
+    el modelo simplemente aprendería a buscar 'Mammalia' en el texto
+    para predecir Mammalia, en lugar de aprender patrones reales.
+
+    El modelo aprende la clase taxonómica a partir de:
+    - Nombre científico y género (contienen señales filogenéticas)
+    - Reino y filo (jerarquía taxonómica legítima)
+    - Orden y familia (correlacionan con la clase pero no la repiten literalmente)
+    - Especie y basis_of_record (contexto del registro)
+    """
+    text_parts = [
+        row.get('scientific_name', ''),
+        row.get('kingdom', ''),
+        row.get('phylum', ''),
+        # taxon_class EXCLUIDO — es el target (taxon_label)
+        row.get('taxon_order', ''),
+        row.get('family', ''),
+        row.get('genus', ''),
+        row.get('species', ''),
+        row.get('basis_of_record', ''),
+    ]
+    return ' '.join(str(part) for part in text_parts if part and not pd.isna(part))

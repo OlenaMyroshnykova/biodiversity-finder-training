@@ -167,21 +167,17 @@ def estimate_conservation_record(row: pd.Series) -> ConservationRecord:
             "oficiales antes de interpretar su estado de conservación."
         )
 
-    if any(marker in source_queries for marker in ["polar_bear", "big_cats", "raptors"]):
-        status = "VU"
-        category = "Vulnerable"
-        note = (
-            "Marcado como especie sensible para fines educativos. "
-            "Validar con IUCN Red List para uso científico."
-        )
-
-    if family in {"felidae", "ursidae"} and observations <= 15:
-        status = "VU"
-        category = "Vulnerable"
-        note = (
-            "Especie de mamífero grande con baja presencia en el dataset. "
-            "Se resalta para promover conciencia de conservación."
-        )
+    # Usamos taxonomía (familia/clase), no nombres de source_query —
+    # así el código no depende de cómo se llamen las consultas GBIF.
+    if family in {"felidae", "ursidae", "panthera", "accipitridae", "falconidae"}:
+        if observations <= 20:
+            status = "VU"
+            category = "Vulnerable"
+            note = (
+                "Especie de mamífero grande o ave rapaz con baja presencia en el dataset. "
+                "Se resalta para promover conciencia de conservación. "
+                "Validar con IUCN Red List para uso científico."
+            )
 
     if taxon_class == "amphibia" and observations <= 20:
         status = "NT"
