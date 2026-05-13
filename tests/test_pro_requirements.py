@@ -87,16 +87,41 @@ def test_conservation_status_adds_required_columns_with_merge() -> None:
     assert enriched_df["is_threatened"].dtype == bool
 
 
-def test_search_tags_adds_tags_de_busqueda() -> None:
-    """Debe crear tags_de_busqueda."""
+def test_search_tags_adds_clean_vibe_tags_only() -> None:
+    """Debe crear tags_de_busqueda sin ruido de nombres, taxonomía o queries."""
     tagged_df = add_search_tags_to_encyclopedia(build_test_encyclopedia())
 
     assert "color_tag" in tagged_df.columns
     assert "habitat_tag" in tagged_df.columns
     assert "size_tag" in tagged_df.columns
     assert "tags_de_busqueda" in tagged_df.columns
-    assert "large" in tagged_df.iloc[0]["tags_de_busqueda"]
-    assert "butterfly" in tagged_df.iloc[1]["tags_de_busqueda"]
+
+    lion_tags = tagged_df.iloc[0]["tags_de_busqueda"]
+    butterfly_tags = tagged_df.iloc[1]["tags_de_busqueda"]
+
+    # Positive checks: the field contains structured vibe tags.
+    assert "large" in lion_tags
+    assert "small" in butterfly_tags
+
+    # Architecture checks: tags_de_busqueda must not include display/search noise.
+    forbidden_tokens = [
+        "lion",
+        "leon",
+        "león",
+        "panthera",
+        "felidae",
+        "mammalia",
+        "butterfly",
+        "papilio",
+        "lepidoptera",
+        "papilionidae",
+        "big_cats_felidae",
+        "butterflies_lepidoptera",
+    ]
+
+    all_tags = f"{lion_tags} {butterfly_tags}".lower()
+    for token in forbidden_tokens:
+        assert token not in all_tags
 
 
 def test_occurrence_points_for_folium_map() -> None:
@@ -112,7 +137,6 @@ def test_offline_export_keeps_essential_columns() -> None:
     """Debe crear enciclopedia ligera."""
     enriched_df, _ = add_conservation_status_to_encyclopedia(build_test_encyclopedia())
     tagged_df = add_search_tags_to_encyclopedia(enriched_df)
-
     offline_df = build_offline_encyclopedia(tagged_df, max_species=1)
 
     assert len(offline_df) == 1
