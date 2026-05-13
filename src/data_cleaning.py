@@ -109,4 +109,10 @@ def remove_rare_classes(df: pd.DataFrame, min_class_records: int) -> pd.DataFram
     filtered_rest = rest[rest["taxon_class"].isin(valid_classes)].copy()
 
     result = pd.concat([anchored, filtered_rest], ignore_index=True)
-    return result.drop_duplicates().reset_index(drop=True)
+    # drop_duplicates() падает на колонках с dict/list (GBIF возвращает вложенные JSON).
+    # Дедуплицируем только по hashable-колонкам.
+    hashable_cols = [
+        c for c in result.columns
+        if not result[c].map(lambda x: isinstance(x, (dict, list))).any()
+    ]
+    return result.drop_duplicates(subset=hashable_cols).reset_index(drop=True)
