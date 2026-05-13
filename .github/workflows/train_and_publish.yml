@@ -14,7 +14,7 @@ on:
       min_class_records:
         description: "Minimum records per taxon class after cleaning"
         required: false
-        default: "20"
+        default: "3"
       max_climate_points:
         description: "Maximum unique coordinate points to enrich with NASA POWER climate data"
         required: false

@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-records", type=int, default=DEFAULT_MAX_RECORDS)
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE)
-    parser.add_argument("--min-class-records", type=int, default=20)
+    parser.add_argument("--min-class-records", type=int, default=3)
     parser.add_argument(
         "--max-climate-points",
         type=int,
