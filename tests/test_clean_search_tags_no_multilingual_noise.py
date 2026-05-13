@@ -5,7 +5,7 @@ import pandas as pd
 from src.search_tags import add_search_tags_to_encyclopedia
 
 
-def test_tags_de_busqueda_contains_only_vibe_tags():
+def test_tags_de_busqueda_contains_only_vibe_tags() -> None:
     df = pd.DataFrame(
         [
             {
@@ -15,7 +15,7 @@ def test_tags_de_busqueda_contains_only_vibe_tags():
                 "taxon_class": "Mammalia",
                 "taxon_order": "Carnivora",
                 "family": "Felidae",
-                "source_queries": "general global flamingo polar bear",
+                "source_queries": "class_mammalia",
             }
         ]
     )
@@ -24,8 +24,8 @@ def test_tags_de_busqueda_contains_only_vibe_tags():
     tags = result.loc[0, "tags_de_busqueda"]
 
     assert "brown" in tags
-    assert "savanna" in tags
     assert "large" in tags
+    assert "forest" in tags or "terrestrial" in tags
 
     forbidden_fragments = [
         "panthera",
@@ -37,14 +37,13 @@ def test_tags_de_busqueda_contains_only_vibe_tags():
         "animalia",
         "mammalia",
         "felidae",
-        "flamingo",
-        "polar",
+        "class_mammalia",
     ]
     for fragment in forbidden_fragments:
         assert fragment not in tags
 
 
-def test_search_document_can_keep_names_but_tags_stay_clean():
+def test_search_document_can_keep_names_but_tags_stay_clean() -> None:
     df = pd.DataFrame(
         [
             {
@@ -64,5 +63,6 @@ def test_search_document_can_keep_names_but_tags_stay_clean():
     assert "фламинго" not in result.loc[0, "tags_de_busqueda"]
     assert "phoenicopterus" not in result.loc[0, "tags_de_busqueda"]
 
-    assert "Phoenicopterus roseus" in result.loc[0, "search_document"]
-    assert "flamingo" in result.loc[0, "search_document"]
+    document = result.loc[0, "search_document"]
+    assert "Phoenicopterus roseus" in document
+    assert "flamingo" in document

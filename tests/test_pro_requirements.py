@@ -10,8 +10,7 @@ from src.search_tags import add_search_tags_to_encyclopedia
 
 
 def build_test_encyclopedia() -> pd.DataFrame:
-    """Crea enciclopedia mínima."""
-
+    """Crea enciclopedia mínima sin source-query shortcuts heredados."""
     return pd.DataFrame(
         [
             {
@@ -25,10 +24,9 @@ def build_test_encyclopedia() -> pd.DataFrame:
                 "genus": "Panthera",
                 "observations": 9,
                 "countries": "KE | TZ",
-                "source_queries": "big_cats_felidae",
+                "source_queries": "class_mammalia",
                 "profile_text": "Large cat.",
                 "search_document": "Panthera leo Lion León Felidae",
-                "iucn_status": "VU",
             },
             {
                 "scientific_name": "Papilio machaon Linnaeus, 1758",
@@ -41,7 +39,7 @@ def build_test_encyclopedia() -> pd.DataFrame:
                 "genus": "Papilio",
                 "observations": 50,
                 "countries": "ES",
-                "source_queries": "butterflies_lepidoptera",
+                "source_queries": "class_insecta",
                 "profile_text": "Butterfly.",
                 "search_document": "Papilio butterfly mariposa",
             },
@@ -51,7 +49,6 @@ def build_test_encyclopedia() -> pd.DataFrame:
 
 def build_test_features() -> pd.DataFrame:
     """Crea features mínimas con coordenadas."""
-
     return pd.DataFrame(
         [
             {
@@ -79,15 +76,11 @@ def build_test_features() -> pd.DataFrame:
 
 
 def test_conservation_status_adds_required_columns_with_merge() -> None:
-    """Debe añadir columnas oficiales IUCN/conservación."""
-
+    """Debe añadir columnas de conservación."""
     enriched_df, conservation_df = add_conservation_status_to_encyclopedia(
         build_test_encyclopedia()
     )
-
     assert not conservation_df.empty
-    assert "iucn_category" in enriched_df.columns
-    assert "iucn_is_official" in enriched_df.columns
     assert "conservation_status" in enriched_df.columns
     assert "is_threatened" in enriched_df.columns
     assert enriched_df["is_threatened"].dtype == bool
@@ -95,9 +88,7 @@ def test_conservation_status_adds_required_columns_with_merge() -> None:
 
 def test_search_tags_adds_clean_tags_de_busqueda() -> None:
     """Debe crear tags_de_busqueda solo con color, hábitat y tamaño."""
-
     tagged_df = add_search_tags_to_encyclopedia(build_test_encyclopedia())
-
     assert "color_tag" in tagged_df.columns
     assert "habitat_tag" in tagged_df.columns
     assert "size_tag" in tagged_df.columns
@@ -110,34 +101,26 @@ def test_search_tags_adds_clean_tags_de_busqueda() -> None:
 
 def test_occurrence_points_for_folium_map() -> None:
     """Debe crear puntos de avistamiento para mapa."""
-
     points_df = build_species_occurrence_points(build_test_features())
-
     assert not points_df.empty
     assert "decimalLatitude" in points_df.columns
     assert "decimalLongitude" in points_df.columns
 
 
 def test_offline_export_keeps_essential_columns() -> None:
-    """Debe crear enciclopedia ligera con campos IUCN y búsqueda."""
-
+    """Debe crear enciclopedia ligera."""
     enriched_df, _ = add_conservation_status_to_encyclopedia(build_test_encyclopedia())
     tagged_df = add_search_tags_to_encyclopedia(enriched_df)
     offline_df = build_offline_encyclopedia(tagged_df, max_species=1)
-
     assert len(offline_df) == 1
     assert "tags_de_busqueda" in offline_df.columns
     assert "conservation_status" in offline_df.columns
-    assert "iucn_category" in offline_df.columns
-    assert "iucn_is_official" in offline_df.columns
 
 
 def test_eda_findings_include_ethics_and_limitations() -> None:
     """Debe generar hallazgos EDA con impacto ético."""
-
     enriched_df, _ = add_conservation_status_to_encyclopedia(build_test_encyclopedia())
     findings = build_eda_findings(enriched_df, build_test_features())
-
     assert "ethical_impact" in findings
     assert "limitations" in findings
     assert findings["total_species"] == 2

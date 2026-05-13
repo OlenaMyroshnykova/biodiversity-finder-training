@@ -1,30 +1,30 @@
-"""Tests para documentos de búsqueda enriquecidos."""
+"""Tests para documentos de búsqueda enriquecidos sin source-query shortcuts."""
 
 import pandas as pd
 
 from src.encyclopedia import build_species_encyclopedia
 
 
-def test_search_document_adds_human_terms_for_polar_bear() -> None:
-    """Debe añadir términos humanos para oso polar."""
+def test_search_document_adds_generic_terms_for_mammals() -> None:
+    """Debe añadir términos humanos genéricos para mamíferos."""
     features_df = pd.DataFrame(
         [
             {
-                "scientific_name": "Ursus maritimus",
+                "scientific_name": "Ursus arctos",
                 "kingdom": "Animalia",
                 "phylum": "Chordata",
                 "class": "Mammalia",
                 "order": "Carnivora",
                 "family": "Ursidae",
                 "genus": "Ursus",
-                "species": "Ursus maritimus",
+                "species": "Ursus arctos",
                 "countryCode": "CA",
                 "basisOfRecord": "HUMAN_OBSERVATION",
                 "season": "invierno",
                 "year": 2024,
-                "decimalLatitude": 70.0,
-                "decimalLongitude": -40.0,
-                "source_query": "polar_bear",
+                "decimalLatitude": 55.0,
+                "decimalLongitude": -110.0,
+                "source_query": "class_mammalia",
             }
         ]
     )
@@ -32,13 +32,15 @@ def test_search_document_adds_human_terms_for_polar_bear() -> None:
     encyclopedia_df = build_species_encyclopedia(features_df)
     document = encyclopedia_df.iloc[0]["search_document"].lower()
 
-    assert "oso polar" in document
-    assert "animal polar" in document
-    assert "hielo" in document
+    assert "mamifero" in document
+    assert "mammal" in document
+    assert "animal" in document
+    assert "oso polar" not in document
+    assert "animal polar" not in document
 
 
-def test_search_document_adds_human_terms_for_butterfly() -> None:
-    """Debe añadir términos humanos para mariposas."""
+def test_search_document_adds_human_terms_for_butterfly_taxonomy() -> None:
+    """Debe añadir términos humanos por taxonomía, no por source_query heredado."""
     features_df = pd.DataFrame(
         [
             {
@@ -56,7 +58,7 @@ def test_search_document_adds_human_terms_for_butterfly() -> None:
                 "year": 2024,
                 "decimalLatitude": 40.0,
                 "decimalLongitude": -3.0,
-                "source_query": "butterflies_lepidoptera",
+                "source_query": "class_insecta",
             }
         ]
     )
@@ -70,8 +72,8 @@ def test_search_document_adds_human_terms_for_butterfly() -> None:
     assert "butterfly" in document
 
 
-def test_search_document_adds_human_terms_for_raptor() -> None:
-    """Debe añadir términos humanos para aves rapaces."""
+def test_search_document_adds_human_terms_for_raptor_taxonomy() -> None:
+    """Debe añadir términos humanos para aves rapaces sin imponer hábitat."""
     features_df = pd.DataFrame(
         [
             {
@@ -89,7 +91,7 @@ def test_search_document_adds_human_terms_for_raptor() -> None:
                 "year": 2024,
                 "decimalLatitude": 40.0,
                 "decimalLongitude": -3.0,
-                "source_query": "raptors_accipitridae",
+                "source_query": "class_aves",
             }
         ]
     )
@@ -99,4 +101,4 @@ def test_search_document_adds_human_terms_for_raptor() -> None:
 
     assert "ave rapaz" in document
     assert "aguila" in document
-    assert "montaña" in document
+    assert "montaña" not in document

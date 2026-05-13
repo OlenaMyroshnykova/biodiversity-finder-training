@@ -1,21 +1,18 @@
-"""Generate clean educational vibe-search tags.
+"""Generación de tags de búsqueda para consultas tipo vibe.
 
-``tags_de_busqueda`` must contain only color + habitat + size.  Scientific
-names, common names, taxonomy labels and source queries are kept for display or
-fallback name search, not for the main natural-language vibe filter.
-
-This file also removes the old demo-species logicand no source_query-driven tagging.
+``tags_de_busqueda`` queda limitado a color, hábitat y tamaño, tal como pide
+el entregable. Nombres comunes, taxonomía y textos multilingües se conservan
+solo en ``search_document`` para búsqueda secundaria por nombre.
 """
-
 from __future__ import annotations
 
-import re
+import unicodedata
 
 import pandas as pd
 
 
 def add_search_tags_to_encyclopedia(encyclopedia_df: pd.DataFrame) -> pd.DataFrame:
-    """Add color, habitat, size and clean ``tags_de_busqueda`` columns."""
+    """Añade color_tag, habitat_tag, size_tag y tags_de_busqueda limpio."""
     tagged_df = encyclopedia_df.copy()
     tagged_df["color_tag"] = tagged_df.apply(infer_color_tag, axis=1)
     tagged_df["habitat_tag"] = tagged_df.apply(infer_habitat_tag, axis=1)
@@ -28,108 +25,61 @@ def add_search_tags_to_encyclopedia(encyclopedia_df: pd.DataFrame) -> pd.DataFra
         + " "
         + tagged_df["size_tag"].fillna("").astype(str)
     )
-    tagged_df["tags_de_busqueda"] = normalize_spaces(tagged_df["tags_de_busqueda"])
-
-    # Fallback name/taxonomy search document.  It may contain names, but it is
-    # not used for the primary structured df.loc search.
-    name_search_document = build_name_search_document(tagged_df)
-    if "search_document" in tagged_df.columns:
-        existing_document = tagged_df["search_document"].fillna("").astype(str)
-        tagged_df["search_document"] = existing_document + " " + name_search_document
-    else:
-        tagged_df["search_document"] = name_search_document
-    tagged_df["search_document"] = normalize_spaces(tagged_df["search_document"])
-
+    tagged_df["tags_de_busqueda"] = normalize_tag_series(tagged_df["tags_de_busqueda"])
+    tagged_df["search_document"] = build_fallback_search_document(tagged_df)
     return tagged_df
 
 
-def build_name_search_document(df: pd.DataFrame) -> pd.Series:
-    """Build fallback text search document without vibe tags."""
-    columns = [
+def normalize_tag_series(series: pd.Series) -> pd.Series:
+    """Normaliza espacios y minúsculas sin añadir nombres ni taxonomía."""
+    return series.str.lower().str.replace(r"\s+", " ", regex=True).str.strip()
+
+
+def build_fallback_search_document(df: pd.DataFrame) -> pd.Series:
+    """Construye texto para fallback por nombre, separado del vibe-search."""
+    if "search_document" in df.columns:
+        document = df["search_document"].fillna("").astype(str)
+    else:
+        document = pd.Series([""] * len(df), index=df.index, dtype=str)
+
+    fallback_columns = [
         "scientific_name",
         "canonical_scientific_name",
         "vernacular_names",
-        "common_name_en",
-        "common_name_es",
         "kingdom",
+        "phylum",
         "taxon_class",
         "taxon_order",
         "family",
         "genus",
+        "species",
+        "countries",
         "profile_text",
     ]
-    base = pd.Series([""] * len(df), index=df.index, dtype=str)
-    for column in columns:
+    for column in fallback_columns:
         if column in df.columns:
-            base = base + " " + df[column].fillna("").astype(str)
-    return normalize_spaces(base)
-
-
-def normalize_spaces(series: pd.Series) -> pd.Series:
-    """Lowercase and collapse whitespace in a Series."""
-    return (
-        series.fillna("")
-        .astype(str)
-        .str.lower()
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
-    )
-
-
-def has_any(text: str, terms: list[str]) -> bool:
-    """Return True if any term appears as a token or phrase."""
-    padded_text = f" {text} "
-    for term in terms:
-        normalized_term = str(term).lower().strip()
-        if not normalized_term:
-            continue
-        if " " in normalized_term:
-            if normalized_term in text:
-                return True
-        elif re.search(rf"(?<![a-z0-9]){re.escape(normalized_term)}(?![a-z0-9])", padded_text):
-            return True
-    return False
+            document = document + " " + df[column].fillna("").astype(str)
+    return document.str.replace(r"\s+", " ", regex=True).str.strip()
 
 
 def infer_color_tag(row: pd.Series) -> str:
-    """Infer an educational color tag from descriptive words and broad taxonomy."""
+    """Infiere color educativo por grandes grupos taxonómicos."""
     text = build_row_text(row)
-
-    # Only real descriptive terms, not selected demo species.
-    if has_any(text, ["pink", "rosa"]):
-        return "pink rosa"
-    if has_any(text, ["red", "rojo", "scarlet"]):
-        return "red rojo"
-    if has_any(text, ["yellow", "amarillo", "golden", "dorado"]):
-        return "yellow golden amarillo dorado"
-    if has_any(text, ["blue", "azul"]):
-        return "blue azul"
-    if has_any(text, ["green", "verde"]):
-        return "green verde"
-    if has_any(text, ["white", "blanco"]):
-        return "white blanco"
-    if has_any(text, ["black", "negro"]):
-        return "black negro"
-    if has_any(text, ["grey", "gray", "gris"]):
-        return "grey gray gris"
-    if has_any(text, ["brown", "marron", "marrón"]):
-        return "brown marron"
-
     if has_any(text, ["amphibia", "hylidae"]):
         return "green brown verde marron"
-    if has_any(text, ["lepidoptera", "papilionidae", "insecta"]):
+    if has_any(text, ["insecta", "lepidoptera", "papilionidae"]):
         return "colorful bright multicolor"
-    if has_any(text, ["felidae", "ursidae", "bovidae", "equidae", "cervidae"]):
+    if has_any(text, ["felidae", "carnivora"]):
         return "brown grey marron gris"
-    if has_any(text, ["plantae", "magnoliopsida"]):
+    if has_any(text, ["plantae", "magnoliopsida", "tracheophyta"]):
         return "green colorful verde colorido"
     if has_any(text, ["reptilia", "crocodylia", "serpentes", "lacertilia"]):
         return "green brown grey verde marron gris"
     if has_any(text, ["actinopterygii", "teleostei"]):
-        return "colorful silver blue colorido plateado azul"
+        return "silver blue colorful plateado azul colorido"
     if has_any(text, ["chondrichthyes", "selachimorpha"]):
         return "grey blue gris azul"
-    if has_any(text, ["arachnida", "araneae", "scorpion"]):
+    if has_any(text, ["arachnida", "araneae", "scorpiones"]):
         return "brown black marron negro"
     if has_any(text, ["fungi", "basidiomycota", "ascomycota"]):
         return "brown white red marron blanco rojo"
@@ -141,109 +91,87 @@ def infer_color_tag(row: pd.Series) -> str:
 
 
 def infer_habitat_tag(row: pd.Series) -> str:
-    """Infer an educational habitat tag from broad taxonomy and climate columns."""
+    """Infiere hábitat educativo por taxonomía amplia y coordenadas."""
     text = build_row_text(row)
+    latitude = safe_float(row.get("avg_latitude", row.get("decimal_latitude", None)))
 
-    if has_any(text, ["desert", "desierto", "arid"]):
-        return "desert arid desierto"
-    if has_any(text, ["wetland", "humedal", "swamp", "pantano"]):
-        return "wetland water humedal agua"
-    if has_any(text, ["ocean", "marine", "sea", "oceano", "océano", "mar"]):
-        return "ocean sea marine oceano mar marino"
-    if has_any(text, ["forest", "bosque", "jungle", "selva"]):
-        return "forest bosque selva"
-    if has_any(text, ["mountain", "montana", "montaña"]):
-        return "mountain montaña"
-    if has_any(text, ["savanna", "sabana", "grassland", "pradera"]):
-        return "savanna grassland sabana pradera"
-    if has_any(text, ["polar", "arctic", "ice", "hielo"]):
-        return "polar ice arctic hielo"
-
-    # Broad ecological hints by taxonomic group/family. These are not species
-    # shortcuts; they provide stable educational tags for df.loc filtering.
-    if has_any(text, ["amphibia"]):
-        return "wetland river water rio humedo"
-    if has_any(text, ["phoenicopteridae", "anatidae", "laridae"]):
-        return "wetland lake coast agua humedal"
-    if has_any(text, ["elephantidae", "giraffidae", "bovidae", "equidae", "rhinocerotidae", "hippopotamidae"]):
-        return "savanna grassland terrestrial sabana pradera"
-    if has_any(text, ["felidae", "ursidae"]):
-        return "forest mountain terrestrial bosque montaña"
-    if has_any(text, ["lepidoptera", "insecta"]):
+    if latitude is not None and abs(latitude) >= 60:
+        return "polar tundra cold hielo polar"
+    if has_any(text, ["amphibia", "hylidae"]):
+        return "wetland river water humedal rio agua"
+    if has_any(text, ["aves", "anatidae", "laridae"]):
+        return "wetland forest coast humedal bosque costa"
+    if has_any(text, ["felidae", "carnivora", "mammalia"]):
+        return "forest mountain terrestrial bosque montana terrestre"
+    if has_any(text, ["insecta", "lepidoptera"]):
         return "meadow forest garden pradera bosque jardin"
-    if has_any(text, ["plantae", "magnoliopsida"]):
+    if has_any(text, ["plantae", "magnoliopsida", "tracheophyta"]):
         return "terrestrial meadow garden pradera jardin"
     if has_any(text, ["crocodylia"]):
-        return "wetland river tropical rio humedo tropical"
+        return "wetland river tropical humedal rio tropical"
     if has_any(text, ["reptilia", "serpentes", "lacertilia"]):
-        return "forest desert tropical bosque desierto"
-    if has_any(text, ["actinopterygii"]):
+        return "forest desert tropical bosque desierto tropical"
+    if has_any(text, ["actinopterygii", "teleostei"]):
         return "ocean river lake aquatic oceano rio lago acuatico"
-    if has_any(text, ["chondrichthyes"]):
+    if has_any(text, ["chondrichthyes", "selachimorpha"]):
         return "ocean sea marine oceano mar marino"
-    if has_any(text, ["arachnida"]):
-        return "terrestrial forest desert bosque desierto"
-    if has_any(text, ["fungi"]):
+    if has_any(text, ["arachnida", "araneae", "scorpiones"]):
+        return "terrestrial forest desert bosque desierto terrestre"
+    if has_any(text, ["fungi", "basidiomycota", "ascomycota"]):
         return "forest terrestrial bosque terrestre"
-    if has_any(text, ["accipitridae"]):
-        return "mountain forest montaña bosque"
-    if has_any(text, ["mammalia"]):
-        return "terrestrial forest grassland bosque pradera"
-    if has_any(text, ["aves"]):
-        return "terrestrial forest wetland bosque humedal"
     return "unknown"
 
 
 def infer_size_tag(row: pd.Series) -> str:
-    """Infer an educational size tag from broad taxonomy/family."""
+    """Infiere tamaño educativo por grupos taxonómicos amplios."""
     text = build_row_text(row)
-    if has_any(text, ["elephantidae", "giraffidae", "rhinocerotidae", "hippopotamidae"]):
-        return "large grande"
-    if has_any(text, ["bovidae", "equidae", "ursidae"]):
+    if has_any(text, ["mammalia", "crocodylia", "chondrichthyes"]):
         return "medium large mediano grande"
-    if has_any(text, ["felidae"]):
-        return "medium large mediano grande"
-    if has_any(text, ["mammalia"]):
-        return "medium mediano"
-    if has_any(text, ["aves", "anatidae", "laridae", "accipitridae"]):
-        return "medium mediano"
-    if has_any(text, ["insecta", "lepidoptera"]):
-        return "small pequeño pequeno"
+    if has_any(text, ["aves"]):
+        return "small medium mediano pequeno pequeño"
+    if has_any(text, ["insecta", "lepidoptera", "arachnida", "araneae"]):
+        return "small tiny pequeno pequeño mini"
     if has_any(text, ["amphibia"]):
-        return "small medium pequeño mediano"
-    if has_any(text, ["plantae", "magnoliopsida"]):
-        return "small medium pequeño mediano"
-    if has_any(text, ["crocodylia", "chondrichthyes"]):
-        return "large grande"
-    if has_any(text, ["reptilia", "serpentes"]):
-        return "medium mediano"
-    if has_any(text, ["actinopterygii"]):
-        return "small medium pequeño mediano"
-    if has_any(text, ["arachnida", "araneae"]):
-        return "small tiny pequeño mini"
-    if has_any(text, ["scorpion", "scorpiones", "fungi"]):
-        return "small medium pequeño mediano"
+        return "small medium pequeno pequeño mediano"
+    if has_any(text, ["plantae", "fungi"]):
+        return "small medium pequeno pequeño mediano"
+    if has_any(text, ["reptilia", "serpentes", "lacertilia", "actinopterygii"]):
+        return "small medium pequeno pequeño mediano"
     return "unknown"
 
 
 def build_row_text(row: pd.Series) -> str:
-    """Build normalized row text used only for tag inference."""
+    """Construye texto normalizado solo con campos estructurales."""
     columns = [
-        "scientific_name",
-        "canonical_scientific_name",
-        "vernacular_names",
-        "common_name_en",
-        "common_name_es",
         "kingdom",
+        "phylum",
         "taxon_class",
         "taxon_order",
         "family",
         "genus",
+        "species",
         "profile_text",
-        "climate_zone",
-        "habitat_hint",
     ]
-    values = [str(row.get(column, "") or "").lower() for column in columns]
-    text = " ".join(values)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    values = [normalize_text(str(row.get(column, "") or "")) for column in columns]
+    return " ".join(values)
+
+
+def normalize_text(value: str) -> str:
+    """Normaliza texto a ASCII básico para comparación estable."""
+    normalized = unicodedata.normalize("NFKD", value.lower())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def has_any(text: str, terms: list[str]) -> bool:
+    """Comprueba si algún término aparece en el texto normalizado."""
+    return any(normalize_text(term) in text for term in terms)
+
+
+def safe_float(value: object) -> float | None:
+    """Convierte a float si es posible."""
+    try:
+        if pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None

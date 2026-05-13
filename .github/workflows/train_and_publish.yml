@@ -4,87 +4,77 @@ on:
   workflow_dispatch:
     inputs:
       country:
-        description: "GLOBAL para dataset general, o código de país como ES"
-        required: true
+        description: "Country code for GBIF. Use GLOBAL for global multi-source dataset."
+        required: false
         default: "GLOBAL"
-        type: string
       max_records:
-        description: "Número máximo de registros GBIF"
-        required: true
+        description: "Maximum number of GBIF records to download"
+        required: false
         default: "50000"
-        type: string
       min_class_records:
-        description: "Mínimo de registros por clase"
-        required: true
+        description: "Minimum records per taxon class after cleaning"
+        required: false
         default: "20"
-        type: string
       max_climate_points:
-        description: "Máximo de puntos climáticos consultados en NASA POWER"
-        required: true
+        description: "Maximum unique coordinate points to enrich with NASA POWER climate data"
+        required: false
         default: "250"
-        type: string
       max_vernacular_species:
-        description: "Máximo de especies para buscar nombres comunes en GBIF + Wikidata"
-        required: true
+        description: "Maximum species to enrich with GBIF/Wikidata common names"
+        required: false
         default: "3000"
-        type: string
+      sample_size:
+        description: "Random sample size for development. Use 0 for full dataset."
+        required: false
+        default: "0"
+      sample_random_state:
+        description: "Random state for df.sample()"
+        required: false
+        default: "42"
+      offline_max_species:
+        description: "Maximum species in the lightweight offline encyclopedia"
+        required: false
+        default: "2000"
       skip_climate_api:
-        description: "Saltar NASA POWER y usar solo fallback climático"
-        required: true
+        description: "Skip NASA POWER API and use latitude-based climate fallback only"
+        required: false
         default: "false"
         type: choice
-        options:
-          - "false"
-          - "true"
+        options: ["false", "true"]
       skip_vernacular_api:
-        description: "Saltar GBIF Species API para nombres comunes"
-        required: true
+        description: "Skip GBIF Species API for common names"
+        required: false
         default: "false"
         type: choice
-        options:
-          - "false"
-          - "true"
+        options: ["false", "true"]
       skip_wikidata:
-        description: "Saltar Wikidata para nombres comunes"
-        required: true
+        description: "Skip Wikidata SPARQL/Search for common names"
+        required: false
         default: "false"
         type: choice
-        options:
-          - "false"
-          - "true"
+        options: ["false", "true"]
+
+permissions:
+  contents: read
 
 jobs:
   train-and-publish:
+    name: Train model and publish artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 120
-
     env:
       PYTHONPATH: .
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       IUCN_API_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Show repository structure
-        run: |
-          pwd
-          ls -la
-          ls -la src || true
-          ls -la tests || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
+          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -95,30 +85,53 @@ jobs:
         run: |
           python -m pytest
 
-      - name: Run training pipeline
+      - name: Build pipeline command
+        id: build-command
         shell: bash
         run: |
-          EXTRA_ARGS=""
+          COMMAND="python scripts/run_pipeline.py"
+          COMMAND="$COMMAND --country '${{ github.event.inputs.country }}'"
+          COMMAND="$COMMAND --max-records '${{ github.event.inputs.max_records }}'"
+          COMMAND="$COMMAND --min-class-records '${{ github.event.inputs.min_class_records }}'"
+          COMMAND="$COMMAND --max-climate-points '${{ github.event.inputs.max_climate_points }}'"
+          COMMAND="$COMMAND --max-vernacular-species '${{ github.event.inputs.max_vernacular_species }}'"
+          COMMAND="$COMMAND --sample-size '${{ github.event.inputs.sample_size }}'"
+          COMMAND="$COMMAND --sample-random-state '${{ github.event.inputs.sample_random_state }}'"
+          COMMAND="$COMMAND --offline-max-species '${{ github.event.inputs.offline_max_species }}'"
           if [ "${{ github.event.inputs.skip_climate_api }}" = "true" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --skip-climate-api"
+            COMMAND="$COMMAND --skip-climate-api"
           fi
           if [ "${{ github.event.inputs.skip_vernacular_api }}" = "true" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --skip-vernacular-api"
+            COMMAND="$COMMAND --skip-vernacular-api"
           fi
           if [ "${{ github.event.inputs.skip_wikidata }}" = "true" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --skip-wikidata"
+            COMMAND="$COMMAND --skip-wikidata"
           fi
+          echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
+          echo "$COMMAND"
 
-          python scripts/run_pipeline.py \
-            --country "${{ github.event.inputs.country }}" \
-            --max-records "${{ github.event.inputs.max_records }}" \
-            --min-class-records "${{ github.event.inputs.min_class_records }}" \
-            --max-climate-points "${{ github.event.inputs.max_climate_points }}" \
-            --max-vernacular-species "${{ github.event.inputs.max_vernacular_species }}" \
-            $EXTRA_ARGS
+      - name: Run training pipeline
+        run: |
+          ${{ steps.build-command.outputs.command }}
 
       - name: Upload artifacts to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python scripts/upload_artifacts.py
+
+      - name: Upload local workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: biodiversity-finder-training-artifacts
+          path: |
+            data/processed/species_encyclopedia.parquet
+            data/processed/species_occurrence_points.parquet
+            data/processed/species_encyclopedia_light.parquet
+            data/processed/species_occurrence_points_light.parquet
+            data/interim/conservation_status.csv
+            data/interim/vernacular_names.csv
+            data/interim/climate_reference.csv
+            reports/metrics.json
+            reports/classification_report.csv
+            reports/eda/
+            reports/data_samples/
+          if-no-files-found: error

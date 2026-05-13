@@ -1,10 +1,4 @@
-"""Construcción de la enciclopedia inteligente de especies.
-
-This version removes the old species-specific search terms. The encyclopedia can
-still keep scientific/common names for display and fallback search, but it does
-not inject hand-picked demo answers into the search pipeline.
-"""
-
+"""Construcción de la enciclopedia inteligente de especies."""
 from __future__ import annotations
 
 import pandas as pd
@@ -16,39 +10,26 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = features_df.copy()
-
     df["scientific_name"] = get_first_existing_column(
-        df,
-        ["scientific_name", "scientificName"],
-        default="Unknown species",
+        df, ["scientific_name", "scientificName"], default="Unknown species"
     )
     df["taxon_class"] = get_first_existing_column(
-        df,
-        ["taxon_class", "class"],
-        default="Unknown class",
+        df, ["taxon_class", "class"], default="Unknown class"
     )
     df["taxon_order"] = get_first_existing_column(
-        df,
-        ["taxon_order", "order"],
-        default="Unknown order",
+        df, ["taxon_order", "order"], default="Unknown order"
     )
     df["country_code"] = get_first_existing_column(
-        df,
-        ["country_code", "countryCode", "country"],
-        default="Unknown country",
+        df, ["country_code", "countryCode", "country"], default="Unknown country"
     )
     df["basis_of_record"] = get_first_existing_column(
-        df,
-        ["basis_of_record", "basisOfRecord"],
-        default="Unknown basis",
+        df, ["basis_of_record", "basisOfRecord"], default="Unknown basis"
     )
     df["decimal_latitude"] = get_first_existing_numeric_column(
-        df,
-        ["decimal_latitude", "decimalLatitude", "latitude", "lat"],
+        df, ["decimal_latitude", "decimalLatitude", "latitude", "lat"]
     )
     df["decimal_longitude"] = get_first_existing_numeric_column(
-        df,
-        ["decimal_longitude", "decimalLongitude", "longitude", "lon", "lng"],
+        df, ["decimal_longitude", "decimalLongitude", "longitude", "lon", "lng"]
     )
 
     required_columns = {
@@ -63,7 +44,6 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
     for column, default_value in required_columns.items():
         if column not in df.columns:
             df[column] = default_value
-
     if "year" not in df.columns:
         df["year"] = pd.NA
 
@@ -86,28 +66,20 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
             most_common_basis=("basis_of_record", most_common_value),
             most_common_season=("season", most_common_value),
             source_queries=("source_query", join_unique_values),
-            iucn_status=(
-                "iucn_red_list_category",
-                most_common_value,
-            )
-            if "iucn_red_list_category" in df.columns
-            else ("scientific_name", lambda _: "Unknown"),
         )
     )
-
     encyclopedia_df["profile_text"] = encyclopedia_df.apply(build_profile_text, axis=1)
     encyclopedia_df["search_document"] = encyclopedia_df.apply(build_search_document, axis=1)
-
     return (
         encyclopedia_df.sort_values(
-            ["observations", "scientific_name"],
-            ascending=[False, True],
-        )
-        .reset_index(drop=True)
+            ["observations", "scientific_name"], ascending=[False, True]
+        ).reset_index(drop=True)
     )
 
 
-def get_first_existing_column(df: pd.DataFrame, candidates: list[str], default: str) -> pd.Series:
+def get_first_existing_column(
+    df: pd.DataFrame, candidates: list[str], default: str
+) -> pd.Series:
     """Devuelve la primera columna existente de una lista de candidatas."""
     for column in candidates:
         if column in df.columns:
@@ -115,7 +87,9 @@ def get_first_existing_column(df: pd.DataFrame, candidates: list[str], default: 
     return pd.Series([default] * len(df), index=df.index)
 
 
-def get_first_existing_numeric_column(df: pd.DataFrame, candidates: list[str]) -> pd.Series:
+def get_first_existing_numeric_column(
+    df: pd.DataFrame, candidates: list[str]
+) -> pd.Series:
     """Devuelve la primera columna numérica existente de una lista."""
     for column in candidates:
         if column in df.columns:
@@ -156,7 +130,10 @@ def build_profile_text(row: pd.Series) -> str:
 
 
 def build_search_document(row: pd.Series) -> str:
-    """Construye fallback search document with taxonomy, not vibe tags."""
+    """Construye documento de búsqueda por nombre/taxonomía.
+
+    No usa etiquetas de descarga heredadas para no contaminar el vibe-search.
+    """
     scientific_text = " ".join(
         [
             str(row.get("scientific_name", "")),
@@ -177,59 +154,36 @@ def build_search_document(row: pd.Series) -> str:
 
 
 def build_human_search_terms(row: pd.Series) -> str:
-    """Add generic human vocabulary by broad taxonomy only.
-
-    No species-level demo terms and no source_query labels are used here.
-    """
+    """Añade vocabulario humano por grupos taxonómicos amplios."""
     combined_text = " ".join(
         [
             str(row.get("kingdom", "")),
             str(row.get("taxon_class", "")),
             str(row.get("taxon_order", "")),
             str(row.get("family", "")),
-            str(row.get("genus", "")),
         ]
     ).lower()
-
     terms: list[str] = []
-
     if "animalia" in combined_text:
         terms.extend(["animal", "animales", "fauna", "organismo", "especie"])
-
     if "plantae" in combined_text or "magnoliopsida" in combined_text:
-        terms.extend(["planta", "plantas", "vegetal", "flor", "flores", "flower", "plant"])
-
+        terms.extend(["planta", "plantas", "vegetal", "flor", "flores", "plant"])
     if "aves" in combined_text:
-        terms.extend(["ave", "aves", "pajaro", "pájaro", "bird", "birds", "plumas", "alas"])
-
+        terms.extend(["ave", "aves", "pajaro", "pájaro", "bird", "birds", "plumas"])
     if "mammalia" in combined_text:
         terms.extend(["mamifero", "mamífero", "mamiferos", "mamíferos", "mammal", "mammals"])
-
     if "insecta" in combined_text:
         terms.extend(["insecto", "insectos", "insect", "insects", "bicho", "bichos"])
-
     if "lepidoptera" in combined_text:
-        terms.extend(["mariposa", "mariposas", "butterfly", "polilla", "polillas", "moth"])
-
+        terms.extend(["mariposa", "mariposas", "butterfly", "butterflies", "polilla", "moth"])
     if "amphibia" in combined_text:
-        terms.extend(["rana", "ranas", "anfibio", "anfibios", "frog", "frogs", "agua", "humedo", "húmedo"])
-
+        terms.extend(["rana", "ranas", "anfibio", "anfibios", "frog", "frogs", "agua"])
     if "accipitridae" in combined_text:
-        terms.extend(["ave rapaz", "rapaz", "rapaces", "aguila", "águila", "hawk", "eagle"])
-
-    if "actinopterygii" in combined_text:
-        terms.extend(["pez", "peces", "fish", "agua", "acuatico", "acuático", "río", "lago"])
-
-    if "reptilia" in combined_text or "crocodylia" in combined_text:
-        terms.extend(["reptil", "reptiles", "cocodrilo", "lagarto", "serpiente", "snake", "escamas"])
-
-    if "chondrichthyes" in combined_text:
-        terms.extend(["tiburon", "tiburón", "shark", "raya", "ray", "mar", "oceano", "marino"])
-
+        terms.extend(["ave rapaz", "rapaz", "rapaces", "aguila", "águila", "eagle", "hawk"])
+    if "actinopterygii" in combined_text or "chondrichthyes" in combined_text:
+        terms.extend(["pez", "peces", "fish", "agua", "acuatico", "acuático"])
     if "arachnida" in combined_text:
-        terms.extend(["araña", "arañas", "spider", "escorpion", "escorpión", "scorpion", "aracnido"])
-
+        terms.extend(["aracnido", "arácnido", "araña", "spider", "escorpion", "scorpion"])
     if "fungi" in combined_text:
-        terms.extend(["hongo", "hongos", "seta", "setas", "mushroom", "descomponedor"])
-
+        terms.extend(["hongo", "hongos", "seta", "mushroom", "fungus"])
     return " ".join(sorted(set(terms)))
