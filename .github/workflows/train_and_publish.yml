@@ -20,9 +20,9 @@ on:
         required: false
         default: "250"
       max_vernacular_species:
-        description: "Maximum species to enrich with GBIF/Wikidata common names"
+        description: "Maximum species to enrich with ES/EN common names"
         required: false
-        default: "3000"
+        default: "500"
       sample_size:
         description: "Random sample size for development. Use 0 for full dataset."
         required: false
