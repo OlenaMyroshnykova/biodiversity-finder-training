@@ -1,11 +1,11 @@
-"""Checks that old curated demo-species architecture is gone."""
+"""Checks that old curated demo-species and fungi architecture are gone."""
 
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_source_code_has_no_old_demo_species_download_markers() -> None:
+def test_source_code_has_no_old_demo_species_or_fungi_download_markers() -> None:
     checked_files = [
         PROJECT_ROOT / "src" / "data_acquisition.py",
         PROJECT_ROOT / "src" / "data_cleaning.py",
@@ -25,7 +25,9 @@ def test_source_code_has_no_old_demo_species_download_markers() -> None:
         "panthera onca",
         "ursus maritimus",
         "phoenicopterus roseus",
+        "fungi_mushrooms",
+        "kingdom_fungi",
+        "class_agaricomycetes",
     ]
-
     for marker in forbidden_markers:
         assert marker not in combined_text
