@@ -31,174 +31,192 @@ def is_global_country(country: str | None) -> bool:
     """Comprueba si el parámetro country significa búsqueda global."""
     if country is None:
         return True
-
     return str(country).strip().upper() in GLOBAL_COUNTRY_VALUES
 
 
 def match_gbif_taxon_key(name: str, rank: str | None = None) -> int | None:
-    """
-    Busca un taxonKey en GBIF Backbone usando el nombre científico.
-    """
+    """Busca un taxonKey en GBIF Backbone usando el nombre científico."""
     params: dict[str, Any] = {"name": name}
-
     if rank:
         params["rank"] = rank
-
     try:
-        response = requests.get(
-            GBIF_SPECIES_MATCH_URL,
-            params=params,
-            timeout=20,
-        )
+        response = requests.get(GBIF_SPECIES_MATCH_URL, params=params, timeout=20)
         response.raise_for_status()
     except requests.RequestException:
         return None
-
     payload = response.json()
     usage_key = payload.get("usageKey")
-
     if isinstance(usage_key, int):
         return usage_key
-
     return None
 
 
 def build_global_query_plan(country: str | None = "GLOBAL") -> list[GBIFQuery]:
-    """
-    Construye el plan de consultas para un dataset global y temático.
+    """Construye el plan de consultas para un dataset global y temático.
 
-    Si `country` no es GLOBAL, se añade filtro de país a todas las consultas.
-    Para este proyecto se recomienda `country=GLOBAL`.
+    Las proporciones (share) suman exactamente 1.00.
+    Los grupos raros en GBIF reciben shares mayores para compensar
+    y superar min_class_records en data_cleaning.
     """
     country_filter: dict[str, Any] = {}
-
     if not is_global_country(country):
         country_filter["country"] = str(country).upper()
 
     def with_common_params(params: dict[str, Any]) -> dict[str, Any]:
-        merged_params = {
-            "hasCoordinate": "true",
-            **country_filter,
-            **params,
-        }
-        return {key: value for key, value in merged_params.items() if value is not None}
+        merged = {"hasCoordinate": "true", **country_filter, **params}
+        return {k: v for k, v in merged.items() if v is not None}
 
     taxon_keys = {
-        "flamingo": match_gbif_taxon_key("Phoenicopterus roseus", "SPECIES"),
-        "polar_bear": match_gbif_taxon_key("Ursus maritimus", "SPECIES"),
-        "lepidoptera": match_gbif_taxon_key("Lepidoptera", "ORDER"),
-        "amphibia": match_gbif_taxon_key("Amphibia", "CLASS"),
-        "accipitridae": match_gbif_taxon_key("Accipitridae", "FAMILY"),
-        "magnoliopsida": match_gbif_taxon_key("Magnoliopsida", "CLASS"),
-        "mammalia": match_gbif_taxon_key("Mammalia", "CLASS"),
-        "jaguar": match_gbif_taxon_key("Panthera onca", "SPECIES"),
-        "felidae": match_gbif_taxon_key("Felidae", "FAMILY"),
+        "flamingo":       match_gbif_taxon_key("Phoenicopterus roseus", "SPECIES"),
+        "polar_bear":     match_gbif_taxon_key("Ursus maritimus",       "SPECIES"),
+        "lepidoptera":    match_gbif_taxon_key("Lepidoptera",           "ORDER"),
+        "amphibia":       match_gbif_taxon_key("Amphibia",              "CLASS"),
+        "accipitridae":   match_gbif_taxon_key("Accipitridae",          "FAMILY"),
+        "magnoliopsida":  match_gbif_taxon_key("Magnoliopsida",         "CLASS"),
+        "mammalia":       match_gbif_taxon_key("Mammalia",              "CLASS"),
+        "jaguar":         match_gbif_taxon_key("Panthera onca",         "SPECIES"),
+        "felidae":        match_gbif_taxon_key("Felidae",               "FAMILY"),
+        "reptilia":       match_gbif_taxon_key("Reptilia",              "CLASS"),
+        "crocodylia":     match_gbif_taxon_key("Crocodylia",            "ORDER"),
+        "actinopterygii": match_gbif_taxon_key("Actinopterygii",        "CLASS"),
+        "chondrichthyes": match_gbif_taxon_key("Chondrichthyes",        "CLASS"),
+        "arachnida":      match_gbif_taxon_key("Arachnida",             "CLASS"),
+        "fungi":          match_gbif_taxon_key("Fungi",                 "KINGDOM"),
     }
 
+    print(
+        "  taxon_keys resueltos:",
+        {k: v for k, v in taxon_keys.items() if v is not None},
+        flush=True,
+    )
+
+    # shares: 0.03+0.05+0.05+0.06+0.06+0.08+0.07+0.06+0.08+0.06+0.10+0.09+0.07+0.06+0.08 = 1.00
     return [
         GBIFQuery(
             source_query="general_global",
             description="Muestra general global de biodiversidad",
             params=with_common_params({}),
-            share=0.24,
+            share=0.03,
         ),
         GBIFQuery(
             source_query="flamingo_pink_bird",
             description="Ave rosa: Phoenicopterus roseus",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["flamingo"],
-                    "scientificName": None if taxon_keys["flamingo"] else "Phoenicopterus roseus",
-                }
-            ),
-            share=0.07,
+            params=with_common_params({
+                "taxonKey": taxon_keys["flamingo"],
+                "scientificName": None if taxon_keys["flamingo"] else "Phoenicopterus roseus",
+            }),
+            share=0.05,
         ),
         GBIFQuery(
             source_query="polar_bear",
             description="Animal polar de hielo: Ursus maritimus",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["polar_bear"],
-                    "scientificName": None if taxon_keys["polar_bear"] else "Ursus maritimus",
-                }
-            ),
-            share=0.07,
+            params=with_common_params({
+                "taxonKey": taxon_keys["polar_bear"],
+                "scientificName": None if taxon_keys["polar_bear"] else "Ursus maritimus",
+            }),
+            share=0.05,
         ),
         GBIFQuery(
             source_query="jaguar_panthera_onca",
-            description="Jaguar / ягуар: Panthera onca",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["jaguar"],
-                    "scientificName": None if taxon_keys["jaguar"] else "Panthera onca",
-                }
-            ),
-            share=0.07,
+            description="Jaguar: Panthera onca",
+            params=with_common_params({
+                "taxonKey": taxon_keys["jaguar"],
+                "scientificName": None if taxon_keys["jaguar"] else "Panthera onca",
+            }),
+            share=0.06,
         ),
         GBIFQuery(
             source_query="big_cats_felidae",
             description="Felinos y grandes gatos: familia Felidae",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["felidae"],
-                    "scientificName": None if taxon_keys["felidae"] else "Felidae",
-                }
-            ),
-            share=0.08,
+            params=with_common_params({
+                "taxonKey": taxon_keys["felidae"],
+                "scientificName": None if taxon_keys["felidae"] else "Felidae",
+            }),
+            share=0.06,
         ),
         GBIFQuery(
             source_query="butterflies_lepidoptera",
             description="Mariposas y polillas: orden Lepidoptera",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["lepidoptera"],
-                    "scientificName": None if taxon_keys["lepidoptera"] else "Lepidoptera",
-                }
-            ),
-            share=0.12,
+            params=with_common_params({
+                "taxonKey": taxon_keys["lepidoptera"],
+                "scientificName": None if taxon_keys["lepidoptera"] else "Lepidoptera",
+            }),
+            share=0.08,
         ),
         GBIFQuery(
             source_query="amphibians",
             description="Ranas y anfibios: clase Amphibia",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["amphibia"],
-                    "scientificName": None if taxon_keys["amphibia"] else "Amphibia",
-                }
-            ),
-            share=0.09,
+            params=with_common_params({
+                "taxonKey": taxon_keys["amphibia"],
+                "scientificName": None if taxon_keys["amphibia"] else "Amphibia",
+            }),
+            share=0.07,
         ),
         GBIFQuery(
             source_query="raptors_accipitridae",
             description="Aves rapaces: familia Accipitridae",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["accipitridae"],
-                    "scientificName": None if taxon_keys["accipitridae"] else "Accipitridae",
-                }
-            ),
-            share=0.08,
+            params=with_common_params({
+                "taxonKey": taxon_keys["accipitridae"],
+                "scientificName": None if taxon_keys["accipitridae"] else "Accipitridae",
+            }),
+            share=0.06,
         ),
         GBIFQuery(
             source_query="flowering_plants",
             description="Plantas con flor: Magnoliopsida",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["magnoliopsida"],
-                    "scientificName": None if taxon_keys["magnoliopsida"] else "Magnoliopsida",
-                }
-            ),
-            share=0.10,
+            params=with_common_params({
+                "taxonKey": taxon_keys["magnoliopsida"],
+                "scientificName": None if taxon_keys["magnoliopsida"] else "Magnoliopsida",
+            }),
+            share=0.08,
         ),
         GBIFQuery(
             source_query="mammals",
             description="Mamíferos: Mammalia",
-            params=with_common_params(
-                {
-                    "taxonKey": taxon_keys["mammalia"],
-                    "scientificName": None if taxon_keys["mammalia"] else "Mammalia",
-                }
-            ),
+            params=with_common_params({
+                "taxonKey": taxon_keys["mammalia"],
+                "scientificName": None if taxon_keys["mammalia"] else "Mammalia",
+            }),
+            share=0.06,
+        ),
+        GBIFQuery(
+            source_query="reptiles_crocodylia",
+            description="Reptiles y cocodrilos: Reptilia / Crocodylia",
+            params=with_common_params({
+                "taxonKey": taxon_keys["reptilia"] or taxon_keys["crocodylia"],
+            }),
+            share=0.10,
+        ),
+        GBIFQuery(
+            source_query="bony_fish",
+            description="Peces óseos: Actinopterygii",
+            params=with_common_params({
+                "taxonKey": taxon_keys["actinopterygii"],
+            }),
+            share=0.09,
+        ),
+        GBIFQuery(
+            source_query="sharks_rays",
+            description="Tiburones y rayas: Chondrichthyes",
+            params=with_common_params({
+                "taxonKey": taxon_keys["chondrichthyes"],
+            }),
+            share=0.07,
+        ),
+        GBIFQuery(
+            source_query="arachnids",
+            description="Arañas y escorpiones: Arachnida",
+            params=with_common_params({
+                "taxonKey": taxon_keys["arachnida"],
+            }),
+            share=0.06,
+        ),
+        GBIFQuery(
+            source_query="fungi_mushrooms",
+            description="Hongos y setas: Fungi",
+            params=with_common_params({
+                "taxonKey": taxon_keys["fungi"],
+            }),
             share=0.08,
         ),
     ]
@@ -210,9 +228,7 @@ def download_biodiversity_training_dataset(
     page_size: int = 300,
     pause_seconds: float = 0.15,
 ) -> pd.DataFrame:
-    """
-    Descarga un dataset global y temático para entrenar Biodiversity Finder.
-    """
+    """Descarga un dataset global y temático para entrenar Biodiversity Finder."""
     query_plan = build_global_query_plan(country)
     frames = []
 
@@ -259,9 +275,7 @@ def download_gbif_occurrences(
     max_records: int = 20_000,
     page_size: int = 300,
 ) -> pd.DataFrame:
-    """
-    Función compatible con versiones anteriores.
-    """
+    """Función compatible con versiones anteriores."""
     if is_global_country(country):
         return download_biodiversity_training_dataset(
             country="GLOBAL",
@@ -269,10 +283,7 @@ def download_gbif_occurrences(
             page_size=page_size,
         )
 
-    params = {
-        "country": str(country).upper(),
-        "hasCoordinate": "true",
-    }
+    params = {"country": str(country).upper(), "hasCoordinate": "true"}
 
     return download_gbif_occurrences_by_params(
         params=params,
@@ -290,33 +301,19 @@ def download_gbif_occurrences_by_params(
     source_query: str,
     pause_seconds: float = 0.15,
 ) -> pd.DataFrame:
-    """
-    Descarga ocurrencias de GBIF usando parámetros arbitrarios.
-    """
+    """Descarga ocurrencias de GBIF usando parámetros arbitrarios."""
     all_records: list[dict[str, Any]] = []
     offset = 0
 
     while len(all_records) < max_records:
         current_limit = min(page_size, max_records - len(all_records))
-
-        request_params = {
-            **params,
-            "limit": current_limit,
-            "offset": offset,
-        }
+        request_params = {**params, "limit": current_limit, "offset": offset}
 
         try:
-            response = requests.get(
-                GBIF_OCCURRENCE_URL,
-                params=request_params,
-                timeout=60,
-            )
+            response = requests.get(GBIF_OCCURRENCE_URL, params=request_params, timeout=60)
             response.raise_for_status()
         except requests.RequestException as error:
-            print(
-                f"Error descargando {source_query} desde GBIF: {error}",
-                flush=True,
-            )
+            print(f"Error descargando {source_query} desde GBIF: {error}", flush=True)
             break
 
         payload = response.json()

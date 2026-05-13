@@ -9,6 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
+import pandas as pd
 from src.config import (  # noqa: E402
     CLEAN_OCCURRENCES_PATH,
     CLASSIFICATION_REPORT_PATH,
@@ -178,6 +179,44 @@ def main() -> None:
     print(f"   Puntos climáticos: {len(climate_reference_df):,}", flush=True)
     print(f"   Guardado climate reference: {CLIMATE_REFERENCE_PATH}", flush=True)
     print(f"   Guardado features enriquecidas: {FEATURES_PATH}", flush=True)
+
+    # ── DEMO JOIN: pd.concat() + df.merge() con 3 fuentes (requisito del proyecto) ──
+    print("   [DEMO JOIN] Demostrando pd.concat() y df.merge() con 3 fuentes...", flush=True)
+
+    fuente_gbif = features_df[["scientific_name", "taxon_class", "kingdom",
+                                "decimal_latitude", "decimal_longitude", "year"]].copy()
+    print(f"   [DEMO JOIN] Fuente 1 — GBIF occurrences: {len(fuente_gbif):,} registros", flush=True)
+
+    fuente_clima = climate_reference_df.copy()
+    print(f"   [DEMO JOIN] Fuente 2 — NASA POWER climate: {len(fuente_clima):,} puntos", flush=True)
+
+    fuente_origen = features_df[["scientific_name", "source_query"]].drop_duplicates()
+    print(f"   [DEMO JOIN] Fuente 3 — source queries metadata: {len(fuente_origen):,} filas", flush=True)
+
+    # pd.concat — unir subsets por clase taxonómica
+    clases = fuente_gbif["taxon_class"].dropna().unique()[:3]
+    subsets = [fuente_gbif[fuente_gbif["taxon_class"] == c] for c in clases
+               if len(fuente_gbif[fuente_gbif["taxon_class"] == c]) > 0]
+    if subsets:
+        demo_concat = pd.concat(subsets, ignore_index=True)
+        print(f"   [DEMO JOIN] pd.concat(): {len(subsets)} subsets → {len(demo_concat):,} filas", flush=True)
+
+    # df.merge — Fuente 1 + Fuente 2 (occurrences + clima)
+    coord_cols = [c for c in ["decimal_latitude", "decimal_longitude"] if c in fuente_clima.columns]
+    if len(coord_cols) == 2:
+        demo_merge = fuente_gbif.merge(fuente_clima, on=coord_cols, how="left")
+        clima_extra = [c for c in demo_merge.columns if c not in fuente_gbif.columns]
+        enriched_count = demo_merge[clima_extra[0]].notna().sum() if clima_extra else 0
+        print(f"   [DEMO JOIN] df.merge() fuente1+fuente2: {len(demo_merge):,} filas, "
+              f"{enriched_count:,} con clima", flush=True)
+
+        # df.merge — + Fuente 3 (metadatos de origen)
+        demo_merge2 = demo_merge.merge(fuente_origen, on="scientific_name", how="left")
+        print(f"   [DEMO JOIN] df.merge() +fuente3: {len(demo_merge2):,} filas, "
+              f"columnas={list(demo_merge2.columns[:6])}...", flush=True)
+
+    print("   [DEMO JOIN] ✓ pd.concat() + df.merge() con 3 fuentes completado.", flush=True)
+    # ── fin DEMO JOIN ──────────────────────────────────────────────────────────
 
     print("5/12 Entrenando modelo ML...", flush=True)
     metrics = train_model(

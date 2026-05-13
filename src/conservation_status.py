@@ -98,8 +98,28 @@ def build_conservation_status_table(encyclopedia_df: pd.DataFrame) -> pd.DataFra
         if not canonical_name:
             continue
 
-        # Placeholder seguro: no rompe CI si no hay token.
-        # La función queda separada para ampliarse si el equipo añade una API key.
+        # Usar estado de conservación real de GBIF si está disponible
+        iucn_from_gbif = str(row.get("iucn_status", "")).strip().upper()
+        valid_iucn_codes = {"EX", "EW", "CR", "EN", "VU", "NT", "LC", "DD", "NE"}
+        if iucn_from_gbif and iucn_from_gbif not in ("", "NAN", "UNKNOWN", "NONE"):
+            if iucn_from_gbif in valid_iucn_codes:
+                category_map = {
+                    "EX": "Extinct", "EW": "Extinct in the Wild",
+                    "CR": "Critically Endangered", "EN": "Endangered",
+                    "VU": "Vulnerable", "NT": "Near Threatened",
+                    "LC": "Least Concern", "DD": "Data Deficient",
+                    "NE": "Not Evaluated",
+                }
+                records.append(ConservationRecord(
+                    canonical_scientific_name=canonical_name,
+                    conservation_status=iucn_from_gbif,
+                    conservation_category=category_map.get(iucn_from_gbif, iucn_from_gbif),
+                    is_threatened=iucn_from_gbif in THREATENED_CATEGORIES,
+                    conservation_source="GBIF/IUCN Red List",
+                    conservation_note="Estado real proporcionado por GBIF desde IUCN Red List.",
+                ))
+                continue
+
         api_record = None
         if iucn_token:
             api_record = None

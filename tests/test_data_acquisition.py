@@ -36,4 +36,9 @@ def test_build_global_query_plan_contains_required_sources(monkeypatch) -> None:
     assert "polar_bear" in source_queries
     assert "butterflies_lepidoptera" in source_queries
     assert "amphibians" in source_queries
+    assert "reptiles_crocodylia" in source_queries
+    assert "bony_fish" in source_queries
+    assert "sharks_rays" in source_queries
+    assert "arachnids" in source_queries
+    assert "fungi_mushrooms" in source_queries
     assert all(isinstance(query, GBIFQuery) for query in query_plan)

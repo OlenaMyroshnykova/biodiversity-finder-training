@@ -75,8 +75,29 @@ def infer_color_tag(row: pd.Series) -> str:
     if any(term in text for term in ["polar", "ursus maritimus", "ice", "hielo"]):
         return "white blanco"
 
-    if any(term in text for term in ["plant", "planta", "flower", "flor"]):
+    if any(term in text for term in ["plant", "planta", "flower", "flor", "magnoliopsida"]):
         return "green colorful verde colorido"
+
+    if any(term in text for term in ["reptilia", "crocodylia", "crocodil", "caiman", "serpentes", "iguana"]):
+        return "green brown grey verde marron gris"
+
+    if any(term in text for term in ["actinopterygii", "pisces", "teleostei"]):
+        return "colorful silver blue colorido plateado azul"
+
+    if any(term in text for term in ["chondrichthyes", "selachimorpha"]):
+        return "grey blue gris azul"
+
+    if any(term in text for term in ["arachnida", "araneae", "scorpion"]):
+        return "brown black marron negro"
+
+    if any(term in text for term in ["fungi", "basidiomycota", "ascomycota"]):
+        return "brown white red marron blanco rojo"
+
+    if any(term in text for term in ["aves", "bird", "ave", "accipitridae"]):
+        return "brown white colorful marron blanco colorido"
+
+    if any(term in text for term in ["mammalia", "mammal"]):
+        return "brown grey marron gris"
 
     return "unknown"
 
@@ -100,11 +121,35 @@ def infer_habitat_tag(row: pd.Series) -> str:
     if any(term in text for term in ["lepidoptera", "butterfly", "mariposa"]):
         return "meadow forest garden pradera bosque jardin"
 
-    if any(term in text for term in ["plant", "planta", "flower", "flor"]):
+    if any(term in text for term in ["plant", "planta", "flower", "flor", "magnoliopsida"]):
         return "terrestrial meadow garden pradera jardin"
 
     if any(term in text for term in ["desert", "desierto", "arid"]):
         return "desert arid desierto"
+
+    if any(term in text for term in ["crocodylia", "crocodil", "caiman"]):
+        return "wetland river tropical rio humedo tropical"
+
+    if any(term in text for term in ["reptilia", "serpentes", "iguana", "lacertilia"]):
+        return "forest desert savanna tropical bosque desierto sabana"
+
+    if any(term in text for term in ["actinopterygii", "teleostei", "pisces"]):
+        return "ocean river lake aquatic oceano rio lago acuatico"
+
+    if any(term in text for term in ["chondrichthyes", "selachimorpha"]):
+        return "ocean sea marine oceano mar marino"
+
+    if any(term in text for term in ["arachnida", "araneae", "scorpion"]):
+        return "terrestrial forest desert bosque desierto"
+
+    if any(term in text for term in ["fungi", "basidiomycota", "ascomycota"]):
+        return "forest terrestrial bosque terrestre"
+
+    if any(term in text for term in ["accipitridae"]):
+        return "mountain forest savanna montaña bosque sabana"
+
+    if any(term in text for term in ["mammalia", "mammal"]):
+        return "terrestrial forest savanna bosque sabana"
 
     return "unknown"
 
@@ -125,7 +170,28 @@ def infer_size_tag(row: pd.Series) -> str:
     if any(term in text for term in ["amphibia", "frog", "rana"]):
         return "small medium pequeño mediano"
 
-    if any(term in text for term in ["plantae", "plant", "planta"]):
+    if any(term in text for term in ["plantae", "plant", "planta", "magnoliopsida"]):
+        return "small medium pequeño mediano"
+
+    if any(term in text for term in ["crocodylia", "crocodil", "caiman"]):
+        return "large grande"
+
+    if any(term in text for term in ["chondrichthyes", "selachimorpha"]):
+        return "large grande"
+
+    if any(term in text for term in ["reptilia", "serpentes"]):
+        return "small medium large pequeño mediano grande"
+
+    if any(term in text for term in ["actinopterygii", "teleostei"]):
+        return "small medium large pequeño mediano grande"
+
+    if any(term in text for term in ["arachnida", "araneae"]):
+        return "small tiny pequeño mini"
+
+    if any(term in text for term in ["scorpion", "scorpiones"]):
+        return "small medium pequeño mediano"
+
+    if any(term in text for term in ["fungi", "basidiomycota"]):
         return "small medium pequeño mediano"
 
     return "unknown"

@@ -18,7 +18,7 @@ def test_global_query_plan_contains_jaguar_and_felidae(monkeypatch) -> None:
 
 
 def test_query_plan_shares_sum_to_one(monkeypatch) -> None:
-    """Las proporciones deben sumar aproximadamente 1."""
+    """Las proporciones deben sumar exactamente 1."""
     monkeypatch.setattr(
         "src.data_acquisition.match_gbif_taxon_key",
         lambda name, rank=None: 123,
@@ -28,3 +28,20 @@ def test_query_plan_shares_sum_to_one(monkeypatch) -> None:
     total_share = sum(query.share for query in query_plan)
 
     assert round(total_share, 2) == 1.00
+
+
+def test_query_plan_contains_new_taxa(monkeypatch) -> None:
+    """El plan debe incluir los nuevos grupos taxonómicos."""
+    monkeypatch.setattr(
+        "src.data_acquisition.match_gbif_taxon_key",
+        lambda name, rank=None: 123,
+    )
+
+    query_plan = build_global_query_plan("GLOBAL")
+    source_queries = {query.source_query for query in query_plan}
+
+    assert "reptiles_crocodylia" in source_queries
+    assert "bony_fish" in source_queries
+    assert "sharks_rays" in source_queries
+    assert "arachnids" in source_queries
+    assert "fungi_mushrooms" in source_queries

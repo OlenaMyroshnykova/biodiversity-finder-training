@@ -86,6 +86,11 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
             most_common_basis=("basis_of_record", most_common_value),
             most_common_season=("season", most_common_value),
             source_queries=("source_query", join_unique_values),
+            iucn_status=(
+                "iucn_red_list_category", most_common_value
+            ) if "iucn_red_list_category" in df.columns else (
+                "scientific_name", lambda x: "Unknown"
+            ),
         )
     )
 
@@ -352,17 +357,36 @@ def build_human_search_terms(row: pd.Series) -> str:
             ]
         )
 
-    if "actinopterygii" in combined_text:
-        terms.extend(
-            [
-                "pez",
-                "peces",
-                "pescado",
-                "fish",
-                "agua",
-                "acuatico",
-                "acuático",
-            ]
-        )
+    if "actinopterygii" in combined_text or "bony_fish" in combined_text:
+        terms.extend([
+            "pez", "peces", "pescado", "fish", "agua", "acuatico", "acuático",
+            "río", "lago", "рыба", "рыбы",
+        ])
+
+    if "reptilia" in combined_text or "reptiles_crocodylia" in combined_text or "crocodylia" in combined_text:
+        terms.extend([
+            "reptil", "reptiles", "cocodrilo", "cocodrilos", "crocodile",
+            "caiman", "lagarto", "serpiente", "snake", "iguana",
+            "крокодил", "рептилия", "ящерица", "змея", "escamas",
+        ])
+
+    if "chondrichthyes" in combined_text or "sharks_rays" in combined_text:
+        terms.extend([
+            "tiburon", "tiburón", "tiburones", "shark", "sharks",
+            "raya", "rayas", "ray", "акула", "акулы", "скат",
+            "mar", "oceano", "marino",
+        ])
+
+    if "arachnida" in combined_text or "arachnids" in combined_text:
+        terms.extend([
+            "araña", "arañas", "spider", "escorpion", "escorpión", "scorpion",
+            "aracnido", "арácnido", "паук", "скорпион",
+        ])
+
+    if "fungi" in combined_text or "fungi_mushrooms" in combined_text:
+        terms.extend([
+            "hongo", "hongos", "seta", "setas", "mushroom", "mushrooms",
+            "гриб", "грибы", "descomponedor",
+        ])
 
     return " ".join(sorted(set(terms)))
