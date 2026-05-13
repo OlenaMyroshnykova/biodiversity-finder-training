@@ -15,7 +15,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -63,7 +62,7 @@ def add_conservation_status_to_encyclopedia(
     *,
     cache_path: str | Path | None = None,
     max_api_species: int | None = None,
-    request_delay_seconds: float = 0.05,
+    request_delay_seconds: float = 0.2,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Add official IUCN status fields to the encyclopedia using ``pd.merge()``."""
 
@@ -123,7 +122,7 @@ def build_conservation_status_table(
     *,
     cache_path: str | Path | None = None,
     max_api_species: int | None = None,
-    request_delay_seconds: float = 0.05,
+    request_delay_seconds: float = 0.2,
 ) -> pd.DataFrame:
     """Build a one-row-per-species IUCN status table.
 
@@ -295,13 +294,14 @@ def fetch_iucn_record_by_scientific_name(
     scientific_name: str,
     token: str,
     *,
-    timeout_seconds: int = 20,
+    timeout_seconds: int = 30,
 ) -> ConservationRecord | None:
-    """Fetch the latest IUCN assessment for a scientific name.
+    """Fetch the latest IUCN assessment for a scientific name using API v4.
 
-    The main endpoint is IUCN API v4. A v3 fallback is kept only as a deadline
-    safety net because many public examples and older tokens still expose that
-    shape. If v3 is unavailable, the code simply returns ``None``.
+    Correct v4 endpoint according to IUCN Swagger:
+    ``GET /api/v4/taxa/scientific_name`` with query parameters
+    ``genus_name`` and ``species_name``. The previous path-style endpoint
+    returned HTML 404 and produced all ``NO_DATA`` rows.
     """
 
     payload = fetch_iucn_payload(scientific_name, token, timeout_seconds=timeout_seconds)
@@ -310,70 +310,110 @@ def fetch_iucn_record_by_scientific_name(
         return None
 
     source = "IUCN Red List"
-    note = "Estado de conservación obtenido desde IUCN Red List API."
+    note = "Estado de conservación obtenido desde IUCN Red List API v4."
     return build_official_record(scientific_name, category, source=source, note=note)
+
+
+def split_scientific_name_for_iucn(scientific_name: str) -> dict[str, str]:
+    """Split a scientific name into IUCN v4 query parameters.
+
+    IUCN v4 expects genus/species parameters, not a single URL path with the
+    full binomial. Authority text is removed by ``clean_scientific_name`` before
+    this function is normally called.
+    """
+
+    clean_name = clean_scientific_name(scientific_name)
+    parts = [part for part in clean_name.split() if part]
+    if len(parts) < 2:
+        return {}
+
+    params = {
+        "genus_name": parts[0],
+        "species_name": parts[1],
+    }
+
+    # Infra/subspecies names are optional. We only include a simple third token
+    # when it looks like a taxonomic epithet, not an authority/year.
+    if len(parts) >= 3 and re.fullmatch(r"[a-z][a-z-]+", parts[2]):
+        params["infra_name"] = parts[2]
+
+    return params
 
 
 def fetch_iucn_payload(
     scientific_name: str,
     token: str,
     *,
-    timeout_seconds: int = 20,
+    timeout_seconds: int = 30,
 ) -> Any | None:
-    """Try known IUCN API shapes and authentication styles defensively."""
+    """Call the official IUCN v4 scientific-name endpoint defensively."""
 
-    encoded_path = quote(scientific_name, safe="")
-    headers = {
-        "Authorization": f"Bearer {token}",
+    params = split_scientific_name_for_iucn(scientific_name)
+    if not params:
+        return None
+
+    url = f"{IUCN_API_BASE_URL}/taxa/scientific_name"
+    base_headers = {
         "Accept": "application/json",
         "User-Agent": "biodiversity-finder-training/1.0",
     }
 
-    requests_to_try: list[tuple[str, dict[str, str], dict[str, str] | None]] = [
-        (
-            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
-            headers,
-            None,
-        ),
-        (
-            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
-            {"Authorization": token, "Accept": "application/json"},
-            None,
-        ),
-        (
-            f"{IUCN_API_BASE_URL}/taxa/scientific_name/{encoded_path}",
-            {"Accept": "application/json"},
-            {"token": token},
-        ),
-        (
-            f"{IUCN_API_V3_BASE_URL}/species/{encoded_path}",
-            {"Accept": "application/json"},
-            {"token": token},
-        ),
+    # Primary auth is Bearer token. The second form is a conservative fallback
+    # for API/client differences; both keep the token out of the URL when possible.
+    requests_to_try: list[tuple[dict[str, str], dict[str, str]]] = [
+        ({**base_headers, "Authorization": f"Bearer {token}"}, params),
+        ({**base_headers, "Authorization": token}, params),
     ]
 
-    for url, request_headers, params in requests_to_try:
+    last_status: int | None = None
+    last_preview = ""
+    for request_headers, request_params in requests_to_try:
         try:
             response = requests.get(
                 url,
                 headers=request_headers,
-                params=params,
+                params=request_params,
                 timeout=timeout_seconds,
             )
-            if response.status_code in {401, 403, 404}:
+            last_status = response.status_code
+            last_preview = response.text[:200].replace("\n", " ")
+
+            if response.status_code in {401, 403, 404, 429}:
+                print(
+                    f"[IUCN] lookup {scientific_name}: HTTP {response.status_code} "
+                    f"at {response.url} preview={last_preview!r}",
+                    flush=True,
+                )
+                if response.status_code == 429:
+                    # Do not hammer the API after a rate-limit response.
+                    return None
                 continue
+
             response.raise_for_status()
-            return response.json()
-        except requests.RequestException:
+            payload = response.json()
+            if extract_iucn_category_from_payload(payload):
+                return payload
+            print(
+                f"[IUCN] lookup {scientific_name}: HTTP 200 but no category found. "
+                f"Payload preview={str(payload)[:300]!r}",
+                flush=True,
+            )
+        except requests.RequestException as exc:
+            print(f"[IUCN] lookup {scientific_name}: request error {exc}", flush=True)
             continue
-        except ValueError:
+        except ValueError as exc:
+            print(
+                f"[IUCN] lookup {scientific_name}: non-JSON response "
+                f"status={last_status} preview={last_preview!r} error={exc}",
+                flush=True,
+            )
             continue
 
     return None
 
 
 def extract_iucn_category_from_payload(payload: Any) -> str:
-    """Extract a Red List category code from several possible JSON shapes."""
+    """Extract a Red List category code from IUCN API v4 JSON shapes."""
 
     if payload is None:
         return ""
@@ -382,15 +422,60 @@ def extract_iucn_category_from_payload(payload: Any) -> str:
     if direct:
         return direct
 
-    # v3 usually returns {"result": [{"category": "LC", ...}]}
     if isinstance(payload, dict):
+        # IUCN v4 scientific_name endpoint can return assessments in one of
+        # these collection fields. Prefer records that look latest/global when
+        # such metadata is available; otherwise fall back to the first valid code.
         for collection_key in ["assessments", "result", "results", "data", "items"]:
-            value = payload.get(collection_key)
-            category = _extract_category_from_collection(value)
+            category = _extract_best_category_from_collection(payload.get(collection_key))
             if category:
                 return category
 
     return ""
+
+
+def _extract_best_category_from_collection(value: Any) -> str:
+    """Prefer latest/global assessment category from a list of assessments."""
+
+    if isinstance(value, dict):
+        nested_category = _extract_category_from_known_keys(value)
+        if nested_category:
+            return nested_category
+        for nested_key in ["data", "results", "items", "assessments", "result"]:
+            category = _extract_best_category_from_collection(value.get(nested_key))
+            if category:
+                return category
+        return ""
+
+    if not isinstance(value, list):
+        return _extract_category_from_known_keys(value)
+
+    candidates: list[tuple[int, str]] = []
+    for item in value:
+        category = _extract_category_from_known_keys(item)
+        if not category:
+            category = _extract_best_category_from_collection(item)
+        if not category:
+            continue
+        score = 0
+        if isinstance(item, dict):
+            text = str(item).lower()
+            if "latest" in item and bool(item.get("latest")):
+                score += 20
+            if "is_latest" in item and bool(item.get("is_latest")):
+                score += 20
+            if "current" in item and bool(item.get("current")):
+                score += 10
+            if "global" in text:
+                score += 5
+            year = safe_int(item.get("year") or item.get("assessment_year"))
+            score += min(max(year - 1900, 0), 200)
+        candidates.append((score, category))
+
+    if not candidates:
+        return ""
+    candidates.sort(reverse=True)
+    return candidates[0][1]
 
 
 def _extract_category_from_collection(value: Any) -> str:

@@ -20,7 +20,7 @@ on:
         required: false
         default: "250"
       max_vernacular_species:
-        description: "Maximum species to enrich with ES/EN common names"
+        description: "Maximum species to enrich with GBIF/Wikidata common names"
         required: false
         default: "500"
       sample_size:
@@ -35,6 +35,10 @@ on:
         description: "Maximum species in the lightweight offline encyclopedia"
         required: false
         default: "2000"
+      max_iucn_species:
+        description: "Maximum unique species to query in IUCN Red List API v4. Use 0 for all, but 100-300 is safer for deadline runs."
+        required: false
+        default: "100"
       skip_climate_api:
         description: "Skip NASA POWER API and use latitude-based climate fallback only"
         required: false
@@ -106,6 +110,7 @@ jobs:
           COMMAND="$COMMAND --sample-size '${{ github.event.inputs.sample_size }}'"
           COMMAND="$COMMAND --sample-random-state '${{ github.event.inputs.sample_random_state }}'"
           COMMAND="$COMMAND --offline-max-species '${{ github.event.inputs.offline_max_species }}'"
+          COMMAND="$COMMAND --max-iucn-species '${{ github.event.inputs.max_iucn_species }}'"
           if [ "${{ github.event.inputs.skip_climate_api }}" = "true" ]; then
             COMMAND="$COMMAND --skip-climate-api"
           fi
@@ -117,6 +122,10 @@ jobs:
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
           echo "$COMMAND"
+
+      - name: Smoke test IUCN API v4 token
+        run: |
+          python -u scripts/check_iucn_live.py || echo "[IUCN LIVE][WARNING] Smoke test failed. Pipeline will continue and store NO_DATA where needed."
 
       - name: Run training pipeline
         run: |
