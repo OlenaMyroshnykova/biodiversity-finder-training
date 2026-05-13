@@ -1,19 +1,8 @@
 """Limpieza de datos de biodiversidad."""
-from __future__ import annotations
-import pandas as pd
 
-# Consultas "ancla": grupos raros que nunca deben ser eliminados por
-# remove_rare_classes aunque tengan pocas observaciones en el dataset.
-ANCHOR_SOURCE_QUERIES = {
-    "reptiles_crocodylia",
-    "bony_fish",
-    "sharks_rays",
-    "arachnids",
-    "fungi_mushrooms",
-    "flamingo_pink_bird",
-    "polar_bear",
-    "jaguar_panthera_onca",
-}
+from __future__ import annotations
+
+import pandas as pd
 
 
 def clean_occurrences(raw_df: pd.DataFrame, min_class_records: int = 50) -> pd.DataFrame:
@@ -30,30 +19,40 @@ def clean_occurrences(raw_df: pd.DataFrame, min_class_records: int = 50) -> pd.D
 
 def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """Normaliza nombres de columnas para trabajar de forma consistente."""
-    return df.rename(columns={
-        "scientificName": "scientific_name",
-        "acceptedScientificName": "accepted_scientific_name",
-        "countryCode": "country_code",
-        "decimalLatitude": "decimal_latitude",
-        "decimalLongitude": "decimal_longitude",
-        "basisOfRecord": "basis_of_record",
-        "individualCount": "individual_count",
-        "coordinateUncertaintyInMeters": "coordinate_uncertainty_meters",
-        "class": "taxon_class",
-        "order": "taxon_order",
-        # Preservar estado de conservación real de GBIF cuando viene en los datos
-        "iucnRedListCategory": "iucn_red_list_category",
-    })
+    return df.rename(
+        columns={
+            "scientificName": "scientific_name",
+            "acceptedScientificName": "accepted_scientific_name",
+            "countryCode": "country_code",
+            "decimalLatitude": "decimal_latitude",
+            "decimalLongitude": "decimal_longitude",
+            "basisOfRecord": "basis_of_record",
+            "individualCount": "individual_count",
+            "coordinateUncertaintyInMeters": "coordinate_uncertainty_meters",
+            "class": "taxon_class",
+            "order": "taxon_order",
+            "iucnRedListCategory": "iucn_red_list_category",
+        }
+    )
 
 
 def keep_required_data(df: pd.DataFrame) -> pd.DataFrame:
     """Elimina filas sin campos básicos."""
     required_columns = [
-        "key", "scientific_name", "kingdom", "phylum", "taxon_class",
-        "family", "country_code", "decimal_latitude", "decimal_longitude",
-        "year", "month", "basis_of_record",
+        "key",
+        "scientific_name",
+        "kingdom",
+        "phylum",
+        "taxon_class",
+        "family",
+        "country_code",
+        "decimal_latitude",
+        "decimal_longitude",
+        "year",
+        "month",
+        "basis_of_record",
     ]
-    existing = [c for c in required_columns if c in df.columns]
+    existing = [column for column in required_columns if column in df.columns]
     return df.dropna(subset=existing).copy()
 
 
@@ -84,8 +83,12 @@ def clean_dates(df: pd.DataFrame) -> pd.DataFrame:
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Elimina duplicados básicos de ocurrencias."""
     subset_columns = [
-        "scientific_name", "decimal_latitude", "decimal_longitude",
-        "year", "month", "basis_of_record",
+        "scientific_name",
+        "decimal_latitude",
+        "decimal_longitude",
+        "year",
+        "month",
+        "basis_of_record",
     ]
     return df.drop_duplicates(subset=subset_columns).copy()
 
@@ -93,26 +96,13 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 def remove_rare_classes(df: pd.DataFrame, min_class_records: int) -> pd.DataFrame:
     """Elimina clases taxonómicas con muy pocos ejemplos.
 
-    Protege los registros de consultas ancla para que grupos raros
-    (cocodrilos, tiburones, hongos, etc.) no sean eliminados aunque
-    tengan pocas observaciones. El filtro se aplica solo al resto.
+    No hay consultas ancla de especies bonitas. Si un grupo queda fuera por baja
+    presencia, se debe resolver con un plan taxonómico más amplio o con
+    df.sample()/parámetros del pipeline, no protegiendo especies concretas.
     """
-    if "source_query" in df.columns:
-        anchored = df[df["source_query"].isin(ANCHOR_SOURCE_QUERIES)]
-        rest = df[~df["source_query"].isin(ANCHOR_SOURCE_QUERIES)]
-    else:
-        anchored = pd.DataFrame(columns=df.columns)
-        rest = df
+    if min_class_records <= 1 or "taxon_class" not in df.columns:
+        return df.copy()
 
-    class_counts = rest["taxon_class"].value_counts()
+    class_counts = df["taxon_class"].value_counts()
     valid_classes = class_counts[class_counts >= min_class_records].index
-    filtered_rest = rest[rest["taxon_class"].isin(valid_classes)].copy()
-
-    result = pd.concat([anchored, filtered_rest], ignore_index=True)
-    # drop_duplicates() падает на колонках с dict/list (GBIF возвращает вложенные JSON).
-    # Дедуплицируем только по hashable-колонкам.
-    hashable_cols = [
-        c for c in result.columns
-        if not result[c].map(lambda x: isinstance(x, (dict, list))).any()
-    ]
-    return result.drop_duplicates(subset=hashable_cols).reset_index(drop=True)
+    return df[df["taxon_class"].isin(valid_classes)].copy()
