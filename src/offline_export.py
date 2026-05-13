@@ -1,5 +1,4 @@
-"""Exportación ligera para modo offline."""
-
+"""Light export for offline/demo mode."""
 from __future__ import annotations
 
 import pandas as pd
@@ -18,6 +17,9 @@ OFFLINE_ENCYCLOPEDIA_COLUMNS = [
     "countries",
     "avg_latitude",
     "avg_longitude",
+    "image_url",
+    "image_source",
+    "has_image",
     "iucn_category",
     "iucn_status_label",
     "iucn_source",
@@ -42,10 +44,8 @@ def build_offline_encyclopedia(
     max_species: int = 2000,
 ) -> pd.DataFrame:
     """Create a compressed light encyclopedia for offline/demo use."""
-
     if encyclopedia_df.empty:
         return encyclopedia_df.copy()
-
     sorted_df = encyclopedia_df.sort_values("observations", ascending=False).copy()
     light_df = sorted_df.head(max_species).copy()
     existing_columns = [column for column in OFFLINE_ENCYCLOPEDIA_COLUMNS if column in light_df.columns]
@@ -59,7 +59,6 @@ def build_offline_occurrence_points(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """Create a light version of occurrence points for Folium maps."""
-
     if occurrence_points_df.empty:
         return occurrence_points_df.copy()
     if len(occurrence_points_df) <= max_total_points:

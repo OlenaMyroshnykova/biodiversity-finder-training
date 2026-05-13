@@ -1,15 +1,13 @@
-"""Construcción de la enciclopedia inteligente de especies."""
-
+"""Build the intelligent species encyclopedia."""
 from __future__ import annotations
+
+from typing import Any
 
 import pandas as pd
 
-PROJECT_SCOPE_KINGDOMS = {"animalia", "plantae"}
-
 
 def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
-    """Construye una enciclopedia agregada: una fila por especie."""
-
+    """Build one row per species and preserve image URLs from GBIF media."""
     if features_df.empty:
         return pd.DataFrame()
 
@@ -48,13 +46,13 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
     for column, default_value in required_columns.items():
         if column not in df.columns:
             df[column] = default_value
-
     if "year" not in df.columns:
         df["year"] = pd.NA
 
-    df = keep_project_scope(df)
-    if df.empty:
-        return pd.DataFrame()
+    df["image_url_candidate"] = df.apply(extract_image_url_from_occurrence_row, axis=1)
+    df["image_source_candidate"] = df["image_url_candidate"].apply(
+        lambda value: "GBIF occurrence media" if str(value or "").strip() else "No image"
+    )
 
     encyclopedia_df = (
         df.groupby("scientific_name", as_index=False)
@@ -75,32 +73,83 @@ def build_species_encyclopedia(features_df: pd.DataFrame) -> pd.DataFrame:
             most_common_basis=("basis_of_record", most_common_value),
             most_common_season=("season", most_common_value),
             source_queries=("source_query", join_unique_values),
+            image_url=("image_url_candidate", first_valid_url),
+            image_source=("image_source_candidate", image_source_for_group),
         )
     )
+    encyclopedia_df["has_image"] = encyclopedia_df["image_url"].fillna("").astype(str).str.startswith(("http://", "https://"))
     encyclopedia_df["profile_text"] = encyclopedia_df.apply(build_profile_text, axis=1)
     encyclopedia_df["search_document"] = encyclopedia_df.apply(build_search_document, axis=1)
 
     return (
-        encyclopedia_df.sort_values(
-            ["observations", "scientific_name"], ascending=[False, True]
-        ).reset_index(drop=True)
+        encyclopedia_df.sort_values(["observations", "scientific_name"], ascending=[False, True])
+        .reset_index(drop=True)
     )
 
 
-def keep_project_scope(df: pd.DataFrame) -> pd.DataFrame:
-    """Mantiene solo animales y plantas en la enciclopedia."""
+def extract_image_url_from_occurrence_row(row: pd.Series) -> str:
+    """Extract a first valid image URL from GBIF occurrence media fields."""
+    for column in ["media", "multimedia", "images"]:
+        value = row.get(column)
+        url = extract_image_url_from_media_value(value)
+        if url:
+            return url
 
-    if "kingdom" not in df.columns:
-        return df.copy()
-    kingdoms = df["kingdom"].fillna("").astype(str).str.strip().str.lower()
-    return df[kingdoms.isin(PROJECT_SCOPE_KINGDOMS)].copy()
+    for column in ["associatedMedia", "identifier", "references"]:
+        value = row.get(column)
+        if isinstance(value, str):
+            url = first_url_from_text(value)
+            if url:
+                return url
+    return ""
 
 
-def get_first_existing_column(
-    df: pd.DataFrame, candidates: list[str], default: str
-) -> pd.Series:
-    """Devuelve la primera columna existente de una lista de candidatas."""
+def extract_image_url_from_media_value(value: Any) -> str:
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                for key in ["identifier", "references", "url", "file", "source"]:
+                    url = first_url_from_text(item.get(key))
+                    if url:
+                        return url
+            elif isinstance(item, str):
+                url = first_url_from_text(item)
+                if url:
+                    return url
+    if isinstance(value, dict):
+        for key in ["identifier", "references", "url", "file", "source"]:
+            url = first_url_from_text(value.get(key))
+            if url:
+                return url
+    if isinstance(value, str):
+        return first_url_from_text(value)
+    return ""
 
+
+def first_url_from_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for separator in ["|", ";", ",", " "]:
+        parts = [part.strip() for part in text.split(separator) if part.strip()]
+        for part in parts:
+            if is_valid_image_url(part):
+                return part
+    if is_valid_image_url(text):
+        return text
+    return ""
+
+
+def is_valid_image_url(value: str) -> bool:
+    normalized = str(value or "").strip().lower()
+    if not normalized.startswith(("http://", "https://")):
+        return False
+    if any(marker in normalized for marker in ["placeholder", "no_image", "noimage", "missing"]):
+        return False
+    return True
+
+
+def get_first_existing_column(df: pd.DataFrame, candidates: list[str], default: str) -> pd.Series:
     for column in candidates:
         if column in df.columns:
             return df[column].fillna(default)
@@ -108,8 +157,6 @@ def get_first_existing_column(
 
 
 def get_first_existing_numeric_column(df: pd.DataFrame, candidates: list[str]) -> pd.Series:
-    """Devuelve la primera columna numérica existente de una lista."""
-
     for column in candidates:
         if column in df.columns:
             return pd.to_numeric(df[column], errors="coerce")
@@ -117,8 +164,6 @@ def get_first_existing_numeric_column(df: pd.DataFrame, candidates: list[str]) -
 
 
 def most_common_value(values: pd.Series) -> str:
-    """Devuelve el valor más frecuente no nulo."""
-
     clean_values = values.dropna().astype(str)
     clean_values = clean_values[clean_values.str.strip() != ""]
     if clean_values.empty:
@@ -130,8 +175,6 @@ def most_common_value(values: pd.Series) -> str:
 
 
 def join_unique_values(values: pd.Series) -> str:
-    """Une valores únicos de una columna en texto."""
-
     clean_values = values.dropna().astype(str)
     clean_values = clean_values[clean_values.str.strip() != ""]
     unique_values = sorted(set(clean_values))
@@ -140,9 +183,18 @@ def join_unique_values(values: pd.Series) -> str:
     return ", ".join(unique_values)
 
 
-def build_profile_text(row: pd.Series) -> str:
-    """Crea un texto descriptivo breve para una especie."""
+def first_valid_url(values: pd.Series) -> str:
+    for value in values.dropna().astype(str):
+        if is_valid_image_url(value):
+            return value
+    return ""
 
+
+def image_source_for_group(values: pd.Series) -> str:
+    return "GBIF occurrence media" if first_valid_url(values) else "No image"
+
+
+def build_profile_text(row: pd.Series) -> str:
     return (
         f"{row['scientific_name']} pertenece a la clase {row['taxon_class']}, "
         f"al orden {row['taxon_order']} y a la familia {row['family']}. "
@@ -152,11 +204,7 @@ def build_profile_text(row: pd.Series) -> str:
 
 
 def build_search_document(row: pd.Series) -> str:
-    """Construye documento de búsqueda por nombre/taxonomía.
-
-    No usa etiquetas de descarga heredadas para no contaminar el vibe-search.
-    """
-
+    """Build fallback text-search document, without download-query shortcuts."""
     scientific_text = " ".join(
         [
             str(row.get("scientific_name", "")),
@@ -177,8 +225,7 @@ def build_search_document(row: pd.Series) -> str:
 
 
 def build_human_search_terms(row: pd.Series) -> str:
-    """Añade vocabulario humano por grupos taxonómicos amplios."""
-
+    """Add broad human vocabulary by taxonomic group."""
     combined_text = " ".join(
         [
             str(row.get("kingdom", "")),
@@ -187,9 +234,7 @@ def build_human_search_terms(row: pd.Series) -> str:
             str(row.get("family", "")),
         ]
     ).lower()
-
     terms: list[str] = []
-
     if "animalia" in combined_text:
         terms.extend(["animal", "animales", "fauna", "organismo", "especie"])
     if "plantae" in combined_text or "magnoliopsida" in combined_text:
@@ -210,5 +255,4 @@ def build_human_search_terms(row: pd.Series) -> str:
         terms.extend(["pez", "peces", "fish", "agua", "acuatico", "acuático"])
     if "arachnida" in combined_text:
         terms.extend(["aracnido", "arácnido", "araña", "spider", "escorpion", "scorpion"])
-
     return " ".join(sorted(set(terms)))
