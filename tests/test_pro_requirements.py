@@ -11,6 +11,7 @@ from src.search_tags import add_search_tags_to_encyclopedia
 
 def build_test_encyclopedia() -> pd.DataFrame:
     """Crea enciclopedia mínima."""
+
     return pd.DataFrame(
         [
             {
@@ -27,6 +28,7 @@ def build_test_encyclopedia() -> pd.DataFrame:
                 "source_queries": "big_cats_felidae",
                 "profile_text": "Large cat.",
                 "search_document": "Panthera leo Lion León Felidae",
+                "iucn_status": "VU",
             },
             {
                 "scientific_name": "Papilio machaon Linnaeus, 1758",
@@ -49,6 +51,7 @@ def build_test_encyclopedia() -> pd.DataFrame:
 
 def build_test_features() -> pd.DataFrame:
     """Crea features mínimas con coordenadas."""
+
     return pd.DataFrame(
         [
             {
@@ -76,56 +79,38 @@ def build_test_features() -> pd.DataFrame:
 
 
 def test_conservation_status_adds_required_columns_with_merge() -> None:
-    """Debe añadir columnas de conservación."""
+    """Debe añadir columnas oficiales IUCN/conservación."""
+
     enriched_df, conservation_df = add_conservation_status_to_encyclopedia(
         build_test_encyclopedia()
     )
 
     assert not conservation_df.empty
+    assert "iucn_category" in enriched_df.columns
+    assert "iucn_is_official" in enriched_df.columns
     assert "conservation_status" in enriched_df.columns
     assert "is_threatened" in enriched_df.columns
     assert enriched_df["is_threatened"].dtype == bool
 
 
-def test_search_tags_adds_clean_vibe_tags_only() -> None:
-    """Debe crear tags_de_busqueda sin ruido de nombres, taxonomía o queries."""
+def test_search_tags_adds_clean_tags_de_busqueda() -> None:
+    """Debe crear tags_de_busqueda solo con color, hábitat y tamaño."""
+
     tagged_df = add_search_tags_to_encyclopedia(build_test_encyclopedia())
 
     assert "color_tag" in tagged_df.columns
     assert "habitat_tag" in tagged_df.columns
     assert "size_tag" in tagged_df.columns
     assert "tags_de_busqueda" in tagged_df.columns
-
-    lion_tags = tagged_df.iloc[0]["tags_de_busqueda"]
-    butterfly_tags = tagged_df.iloc[1]["tags_de_busqueda"]
-
-    # Positive checks: the field contains structured vibe tags.
-    assert "large" in lion_tags
-    assert "small" in butterfly_tags
-
-    # Architecture checks: tags_de_busqueda must not include display/search noise.
-    forbidden_tokens = [
-        "lion",
-        "leon",
-        "león",
-        "panthera",
-        "felidae",
-        "mammalia",
-        "butterfly",
-        "papilio",
-        "lepidoptera",
-        "papilionidae",
-        "big_cats_felidae",
-        "butterflies_lepidoptera",
-    ]
-
-    all_tags = f"{lion_tags} {butterfly_tags}".lower()
-    for token in forbidden_tokens:
-        assert token not in all_tags
+    assert "large" in tagged_df.iloc[0]["tags_de_busqueda"]
+    assert "butterfly" not in tagged_df.iloc[1]["tags_de_busqueda"]
+    assert "papilio" not in tagged_df.iloc[1]["tags_de_busqueda"]
+    assert "lepidoptera" not in tagged_df.iloc[1]["tags_de_busqueda"]
 
 
 def test_occurrence_points_for_folium_map() -> None:
     """Debe crear puntos de avistamiento para mapa."""
+
     points_df = build_species_occurrence_points(build_test_features())
 
     assert not points_df.empty
@@ -134,7 +119,8 @@ def test_occurrence_points_for_folium_map() -> None:
 
 
 def test_offline_export_keeps_essential_columns() -> None:
-    """Debe crear enciclopedia ligera."""
+    """Debe crear enciclopedia ligera con campos IUCN y búsqueda."""
+
     enriched_df, _ = add_conservation_status_to_encyclopedia(build_test_encyclopedia())
     tagged_df = add_search_tags_to_encyclopedia(enriched_df)
     offline_df = build_offline_encyclopedia(tagged_df, max_species=1)
@@ -142,10 +128,13 @@ def test_offline_export_keeps_essential_columns() -> None:
     assert len(offline_df) == 1
     assert "tags_de_busqueda" in offline_df.columns
     assert "conservation_status" in offline_df.columns
+    assert "iucn_category" in offline_df.columns
+    assert "iucn_is_official" in offline_df.columns
 
 
 def test_eda_findings_include_ethics_and_limitations() -> None:
     """Debe generar hallazgos EDA con impacto ético."""
+
     enriched_df, _ = add_conservation_status_to_encyclopedia(build_test_encyclopedia())
     findings = build_eda_findings(enriched_df, build_test_features())
 

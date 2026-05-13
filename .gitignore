@@ -3,7 +3,9 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.env
 
+# Pipeline artifacts
 data/raw/*
 data/interim/*
 data/processed/*
