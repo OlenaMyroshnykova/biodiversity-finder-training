@@ -5,13 +5,12 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-import pandas as pd
-
-from src.climate_enrichment import add_climate_features
-from src.config import (
+from src.config import (  # noqa: E402
     CLEAN_OCCURRENCES_PATH,
     CLASSIFICATION_REPORT_PATH,
     DEFAULT_MAX_RECORDS,
@@ -23,39 +22,33 @@ from src.config import (
     RAW_OCCURRENCES_PATH,
     REPORTS_DIR,
 )
-from src.conservation_status import add_conservation_status_to_encyclopedia
-from src.data_acquisition import download_biodiversity_training_dataset
-from src.data_cleaning import clean_occurrences
-from src.data_snapshots import save_pipeline_snapshots
-from src.eda_reporting import generate_eda_reports
-from src.encyclopedia import build_species_encyclopedia
-from src.feature_engineering import create_features
-from src.image_enrichment import add_images_to_encyclopedia
-from src.model_training import train_model
-from src.occurrence_points import build_species_occurrence_points
-from src.offline_export import build_offline_encyclopedia, build_offline_occurrence_points
-from src.search_tags import add_search_tags_to_encyclopedia
-from src.vernacular_names import add_vernacular_names_to_encyclopedia
+from src.climate_enrichment import add_climate_features  # noqa: E402
+from src.conservation_status import add_conservation_status_to_encyclopedia  # noqa: E402
+from src.data_acquisition import download_biodiversity_training_dataset  # noqa: E402
+from src.data_cleaning import clean_occurrences  # noqa: E402
+from src.data_snapshots import save_pipeline_snapshots  # noqa: E402
+from src.eda_reporting import generate_eda_reports  # noqa: E402
+from src.encyclopedia import build_species_encyclopedia  # noqa: E402
+from src.feature_engineering import create_features  # noqa: E402
+from src.image_enrichment import add_images_to_encyclopedia  # noqa: E402
+from src.model_training import train_model  # noqa: E402
+from src.occurrence_points import build_species_occurrence_points  # noqa: E402
+from src.offline_export import build_offline_encyclopedia, build_offline_occurrence_points  # noqa: E402
+from src.search_tags import add_search_tags_to_encyclopedia  # noqa: E402
+from src.vernacular_names import add_vernacular_names_to_encyclopedia  # noqa: E402
 
 CLIMATE_REFERENCE_PATH = PROJECT_ROOT / "data" / "interim" / "climate_reference.csv"
 VERNACULAR_NAMES_PATH = PROJECT_ROOT / "data" / "interim" / "vernacular_names.csv"
+IMAGE_ENRICHMENT_PATH = PROJECT_ROOT / "data" / "interim" / "image_enrichment.csv"
 CONSERVATION_STATUS_PATH = PROJECT_ROOT / "data" / "interim" / "conservation_status.csv"
 IUCN_STATUS_CACHE_PATH = PROJECT_ROOT / "data" / "interim" / "iucn_status_cache.csv"
-IMAGE_METADATA_PATH = PROJECT_ROOT / "data" / "interim" / "image_metadata.csv"
 OCCURRENCE_POINTS_PATH = PROJECT_ROOT / "data" / "processed" / "species_occurrence_points.parquet"
 OFFLINE_ENCYCLOPEDIA_PATH = PROJECT_ROOT / "data" / "processed" / "species_encyclopedia_light.parquet"
 OFFLINE_POINTS_PATH = PROJECT_ROOT / "data" / "processed" / "species_occurrence_points_light.parquet"
 
-DEFAULT_OFFLINE_MAX_SPECIES = 2000
-DEFAULT_MAX_VERNACULAR_SPECIES = 3000
-DEFAULT_MAX_IMAGE_SPECIES = 2000
-DEFAULT_MAX_GBIF_IMAGE_FALLBACK_SPECIES = 500
-DEFAULT_MAX_IUCN_SPECIES = 500
-
 
 def parse_args() -> argparse.Namespace:
     """Lee argumentos de consola."""
-
     parser = argparse.ArgumentParser(description="Pipeline de Biodiversity Finder Training")
     parser.add_argument(
         "--country",
@@ -77,19 +70,10 @@ def parse_args() -> argparse.Namespace:
         help="Usa solo estimación climática por latitud, sin llamar a NASA POWER.",
     )
     parser.add_argument(
-        "--offline-max-species",
-        type=int,
-        default=DEFAULT_OFFLINE_MAX_SPECIES,
-        help="Máximo de especies para la enciclopedia offline ligera.",
-    )
-    parser.add_argument(
         "--max-vernacular-species",
         type=int,
-        default=DEFAULT_MAX_VERNACULAR_SPECIES,
-        help=(
-            "Máximo de especies consultadas para nombres comunes. "
-            "Debe ser >= offline-max-species para que la app encuentre nombres como oso/bear."
-        ),
+        default=5000,
+        help="Máximo de especies consultadas para nombres comunes.",
     )
     parser.add_argument(
         "--skip-vernacular-api",
@@ -99,30 +83,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-wikidata",
         action="store_true",
-        help="No consulta Wikidata SPARQL/Search para nombres comunes.",
+        help="No consulta Wikidata SPARQL/Search.",
     )
     parser.add_argument(
         "--max-image-species",
         type=int,
-        default=DEFAULT_MAX_IMAGE_SPECIES,
-        help=(
-            "Máximo de especies para enriquecer con image_url. "
-            "Por defecto cubre la enciclopedia ligera."
-        ),
+        default=5000,
+        help="Máximo de especies sin imagen enriquecidas por Wikidata/Wikipedia.",
     )
     parser.add_argument(
         "--max-gbif-image-fallback-species",
         type=int,
-        default=DEFAULT_MAX_GBIF_IMAGE_FALLBACK_SPECIES,
-        help=(
-            "Máximo de especies sin imagen que además consultan GBIF occurrence media. "
-            "Wikidata P18 se intenta para todas las max-image-species."
-        ),
+        default=1500,
+        help="Máximo de especies sin imagen consultadas como fallback en GBIF occurrence media.",
     )
     parser.add_argument(
         "--skip-image-api",
         action="store_true",
-        help="No consulta Wikidata/GBIF para imágenes; conserva solo image_url existente.",
+        help="No consulta APIs externas para enriquecer imágenes.",
     )
     parser.add_argument(
         "--sample-size",
@@ -137,40 +115,23 @@ def parse_args() -> argparse.Namespace:
         help="Semilla para df.sample().",
     )
     parser.add_argument(
+        "--offline-max-species",
+        type=int,
+        default=5000,
+        help="Máximo de especies para la enciclopedia offline ligera.",
+    )
+    parser.add_argument(
         "--max-iucn-species",
         type=int,
-        default=DEFAULT_MAX_IUCN_SPECIES,
+        default=0,
         help="Máximo de especies únicas consultadas en IUCN. 0 = todas.",
     )
     return parser.parse_args()
 
 
-def normalize_pipeline_limits(args: argparse.Namespace) -> argparse.Namespace:
-    """Make default limits coherent for the light encyclopedia."""
-
-    if args.max_vernacular_species < args.offline_max_species:
-        print(
-            "[Defaults] max_vernacular_species is lower than offline_max_species; "
-            "raising it so common-name search covers the light artifact.",
-            flush=True,
-        )
-        args.max_vernacular_species = args.offline_max_species
-
-    if args.max_image_species < args.offline_max_species:
-        print(
-            "[Defaults] max_image_species is lower than offline_max_species; "
-            "raising it so image_url covers the light artifact.",
-            flush=True,
-        )
-        args.max_image_species = args.offline_max_species
-
-    return args
-
-
 def main() -> None:
     """Ejecuta descarga, limpieza, features, clima, modelo y enciclopedia."""
-
-    args = normalize_pipeline_limits(parse_args())
+    args = parse_args()
     parameters = {
         "country": args.country,
         "max_records": args.max_records,
@@ -181,7 +142,7 @@ def main() -> None:
         "max_climate_points": args.max_climate_points,
         "vernacular_names_source": "GBIF Species API + Wikidata + scientific_name fallback",
         "max_vernacular_species": args.max_vernacular_species,
-        "image_source": "Wikidata P18 + limited GBIF occurrence media fallback",
+        "image_source": "GBIF occurrence media + Wikidata Commons + GBIF fallback",
         "max_image_species": args.max_image_species,
         "max_gbif_image_fallback_species": args.max_gbif_image_fallback_species,
         "iucn_source": "IUCN Red List API v4 + cache + NO_DATA fallback",
@@ -190,6 +151,7 @@ def main() -> None:
         "sample_random_state": args.sample_random_state,
         "offline_max_species": args.offline_max_species,
     }
+
     print("Pipeline parameters:", parameters, flush=True)
 
     print("1/13 Descargando dataset global multi-source desde GBIF...", flush=True)
@@ -207,7 +169,7 @@ def main() -> None:
     )
     print(f" Guardado raw parquet: {RAW_OCCURRENCES_PATH}", flush=True)
 
-    print("2/13 Limpiando datos y limitando scope a Animalia + Plantae...", flush=True)
+    print("2/13 Limpiando datos...", flush=True)
     clean_df = clean_occurrences(raw_df, min_class_records=args.min_class_records)
     CLEAN_OCCURRENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
     clean_df.to_parquet(CLEAN_OCCURRENCES_PATH, index=False)
@@ -241,36 +203,7 @@ def main() -> None:
     print(f" Guardado features enriquecidas: {FEATURES_PATH}", flush=True)
 
     print(" [DEMO JOIN] Demostrando pd.concat() y df.merge() con 3 fuentes...", flush=True)
-    fuente_gbif = features_df[
-        [
-            "scientific_name",
-            "taxon_class",
-            "kingdom",
-            "decimal_latitude",
-            "decimal_longitude",
-            "year",
-        ]
-    ].copy()
-    fuente_clima = climate_reference_df.copy()
-    fuente_origen = features_df[["scientific_name", "source_query"]].drop_duplicates()
-    clases = fuente_gbif["taxon_class"].dropna().unique()[:3]
-    subsets = [
-        fuente_gbif[fuente_gbif["taxon_class"] == taxon_class]
-        for taxon_class in clases
-        if len(fuente_gbif[fuente_gbif["taxon_class"] == taxon_class]) > 0
-    ]
-    if subsets:
-        demo_concat = pd.concat(subsets, ignore_index=True)
-        print(
-            f" [DEMO JOIN] pd.concat(): {len(subsets)} subsets → {len(demo_concat):,} filas",
-            flush=True,
-        )
-    coord_cols = [c for c in ["decimal_latitude", "decimal_longitude"] if c in fuente_clima.columns]
-    if len(coord_cols) == 2:
-        demo_merge = fuente_gbif.merge(fuente_clima, on=coord_cols, how="left")
-        demo_merge2 = demo_merge.merge(fuente_origen, on="scientific_name", how="left")
-        print(f" [DEMO JOIN] df.merge() +fuente3: {len(demo_merge2):,} filas", flush=True)
-    print(" [DEMO JOIN] ✓ pd.concat() + df.merge() con 3 fuentes completado.", flush=True)
+    demonstrate_big_join(features_df, climate_reference_df)
 
     print("5/13 Entrenando modelo ML...", flush=True)
     metrics = train_model(
@@ -284,11 +217,11 @@ def main() -> None:
     print(f" Guardado metrics: {METRICS_PATH}", flush=True)
     print(f" Guardado classification report: {CLASSIFICATION_REPORT_PATH}", flush=True)
 
-    print("6/13 Construyendo enciclopedia...", flush=True)
+    print("6/13 Construyendo enciclopedia base...", flush=True)
     encyclopedia_df = build_species_encyclopedia(features_df)
     print(f" Especies base en enciclopedia: {len(encyclopedia_df):,}", flush=True)
 
-    print("7/13 Añadiendo nombres comunes ES/EN usando GBIF + Wikidata + df.merge()...", flush=True)
+    print("7/13 Añadiendo nombres comunes usando GBIF + Wikidata + df.merge()...", flush=True)
     encyclopedia_df, vernacular_names_df = add_vernacular_names_to_encyclopedia(
         encyclopedia_df=encyclopedia_df,
         features_df=features_df,
@@ -301,12 +234,25 @@ def main() -> None:
     print(f" Nombres comunes reunidos: {len(vernacular_names_df):,}", flush=True)
     print(f" Guardado vernacular names: {VERNACULAR_NAMES_PATH}", flush=True)
 
-    print("8/13 Añadiendo estatus oficial IUCN Red List con pd.merge()...", flush=True)
+    print("8/13 Añadiendo imágenes estables al artifact...", flush=True)
+    encyclopedia_df, image_enrichment_df = add_images_to_encyclopedia(
+        encyclopedia_df=encyclopedia_df,
+        max_species=args.max_image_species,
+        max_gbif_fallback_species=args.max_gbif_image_fallback_species,
+        use_api=not args.skip_image_api,
+        use_wikidata=not args.skip_wikidata,
+    )
+    IMAGE_ENRICHMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    image_enrichment_df.to_csv(IMAGE_ENRICHMENT_PATH, index=False)
+    image_count = int(encyclopedia_df.get("has_image", pd.Series(dtype=bool)).sum())
+    print(f" Especies con imagen: {image_count:,}", flush=True)
+    print(f" Guardado image enrichment: {IMAGE_ENRICHMENT_PATH}", flush=True)
+
+    print("9/13 Añadiendo estatus oficial IUCN Red List con pd.merge()...", flush=True)
     encyclopedia_df, conservation_df = add_conservation_status_to_encyclopedia(
         encyclopedia_df,
         cache_path=IUCN_STATUS_CACHE_PATH,
         max_api_species=args.max_iucn_species if args.max_iucn_species > 0 else None,
-        request_delay_seconds=0.5,
     )
     CONSERVATION_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     conservation_df.to_csv(CONSERVATION_STATUS_PATH, index=False)
@@ -316,19 +262,7 @@ def main() -> None:
     print(f" Guardado conservation status: {CONSERVATION_STATUS_PATH}", flush=True)
     print(f" Guardado IUCN cache: {IUCN_STATUS_CACHE_PATH}", flush=True)
 
-    print("9/13 Enriqueciendo image_url para la enciclopedia ligera...", flush=True)
-    encyclopedia_df, image_metadata_df = add_images_to_encyclopedia(
-        encyclopedia_df=encyclopedia_df,
-        max_species=args.max_image_species,
-        max_gbif_fallback_species=args.max_gbif_image_fallback_species,
-        use_api=not args.skip_image_api,
-    )
-    IMAGE_METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    image_metadata_df.to_csv(IMAGE_METADATA_PATH, index=False)
-    print(f" Imágenes preparadas: {len(image_metadata_df):,}", flush=True)
-    print(f" Guardado image metadata: {IMAGE_METADATA_PATH}", flush=True)
-
-    print("10/13 Añadiendo tags_de_busqueda limpios para filtros df.loc...", flush=True)
+    print("10/13 Añadiendo tags_de_busqueda y search_document para df.loc...", flush=True)
     encyclopedia_df = add_search_tags_to_encyclopedia(encyclopedia_df)
     ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
     encyclopedia_df.to_parquet(ENCYCLOPEDIA_PATH, index=False)
@@ -349,15 +283,10 @@ def main() -> None:
     )
     offline_points_df = build_offline_occurrence_points(occurrence_points_df)
     OFFLINE_ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    offline_encyclopedia_df.to_parquet(OFFLINE_ENCYCLOPEDIA_PATH, index=False)
     OFFLINE_POINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    offline_encyclopedia_df.to_parquet(OFFLINE_ENCYCLOPEDIA_PATH, index=False)
     offline_points_df.to_parquet(OFFLINE_POINTS_PATH, index=False)
     print(f" Especies offline: {len(offline_encyclopedia_df):,}", flush=True)
-    print(
-        " Especies offline con image_url: "
-        f"{int(offline_encyclopedia_df.get('has_image', pd.Series(dtype=bool)).sum()):,}",
-        flush=True,
-    )
     print(f" Puntos offline: {len(offline_points_df):,}", flush=True)
 
     print("13/13 Guardando muestras, EDA y hallazgos...", flush=True)
@@ -373,8 +302,8 @@ def main() -> None:
     extra_sample_files = {
         "climate_reference_sample": (climate_reference_df, "climate_reference_sample.csv"),
         "vernacular_names_sample": (vernacular_names_df, "vernacular_names_sample.csv"),
+        "image_enrichment_sample": (image_enrichment_df, "image_enrichment_sample.csv"),
         "conservation_status_sample": (conservation_df, "conservation_status_sample.csv"),
-        "image_metadata_sample": (image_metadata_df, "image_metadata_sample.csv"),
         "occurrence_points_sample": (occurrence_points_df, "occurrence_points_sample.csv"),
         "offline_encyclopedia_sample": (offline_encyclopedia_df, "offline_encyclopedia_sample.csv"),
     }
@@ -382,6 +311,7 @@ def main() -> None:
         sample_path = REPORTS_DIR / "data_samples" / filename
         dataframe.head(100).to_csv(sample_path, index=False)
         snapshot_files[name] = sample_path
+
     eda_files = generate_eda_reports(
         encyclopedia_df=encyclopedia_df,
         features_df=features_df,
@@ -390,8 +320,41 @@ def main() -> None:
     snapshot_files.update(eda_files)
     for name, path in snapshot_files.items():
         print(f" Sample {name}: {path}", flush=True)
-
     print("Pipeline terminado correctamente.", flush=True)
+
+
+def demonstrate_big_join(features_df: pd.DataFrame, climate_reference_df: pd.DataFrame) -> None:
+    """Small explicit demo for the assignment: pd.concat() + df.merge() with 3 sources."""
+    required_cols = ["scientific_name", "taxon_class", "kingdom", "decimal_latitude", "decimal_longitude", "year"]
+    missing = [column for column in required_cols if column not in features_df.columns]
+    if missing:
+        print(f" [DEMO JOIN] Saltado: faltan columnas {missing}", flush=True)
+        return
+
+    source_gbif = features_df[required_cols].copy()
+    source_climate = climate_reference_df.copy()
+    if "source_query" in features_df.columns:
+        source_origin = features_df[["scientific_name", "source_query"]].drop_duplicates()
+    else:
+        source_origin = features_df[["scientific_name"]].drop_duplicates()
+        source_origin["source_query"] = "unknown_source"
+
+    classes = source_gbif["taxon_class"].dropna().unique()[:3]
+    subsets = [
+        source_gbif[source_gbif["taxon_class"] == taxon_class]
+        for taxon_class in classes
+        if len(source_gbif[source_gbif["taxon_class"] == taxon_class]) > 0
+    ]
+    if subsets:
+        demo_concat = pd.concat(subsets, ignore_index=True)
+        print(f" [DEMO JOIN] pd.concat(): {len(subsets)} subsets → {len(demo_concat):,} filas", flush=True)
+
+    coord_cols = [column for column in ["decimal_latitude", "decimal_longitude"] if column in source_climate.columns]
+    if len(coord_cols) == 2:
+        demo_merge = source_gbif.merge(source_climate, on=coord_cols, how="left")
+        demo_merge_2 = demo_merge.merge(source_origin, on="scientific_name", how="left")
+        print(f" [DEMO JOIN] df.merge() + fuente3: {len(demo_merge_2):,} filas", flush=True)
+        print(" [DEMO JOIN] ✓ pd.concat() + df.merge() con 3 fuentes completado.", flush=True)
 
 
 if __name__ == "__main__":
