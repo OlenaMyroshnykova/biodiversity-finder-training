@@ -129,9 +129,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_pipeline_limits(args: argparse.Namespace) -> dict[str, int | None]:
+    """Normaliza límites del pipeline.
+
+    Convención del proyecto:
+    - 0 o valores negativos en límites de APIs significan "sin límite".
+    - sample_size <= 0 significa "sin muestreo".
+
+    Esta función existe para que workflow, tests y main compartan la misma regla.
+    """
+
+    def api_limit(value: int | None) -> int | None:
+        if value is None or value <= 0:
+            return None
+        return int(value)
+
+    def non_negative(value: int | None) -> int:
+        if value is None or value <= 0:
+            return 0
+        return int(value)
+
+    return {
+        "max_iucn_species_api": api_limit(args.max_iucn_species),
+        "max_vernacular_species_api": api_limit(args.max_vernacular_species),
+        "max_image_species_api": api_limit(args.max_image_species),
+        "max_gbif_image_fallback_species_api": api_limit(args.max_gbif_image_fallback_species),
+        "sample_size": non_negative(args.sample_size),
+        "offline_max_species": non_negative(args.offline_max_species),
+    }
+
+
 def main() -> None:
     """Ejecuta descarga, limpieza, features, clima, modelo y enciclopedia."""
     args = parse_args()
+    limits = normalize_pipeline_limits(args)
     parameters = {
         "country": args.country,
         "max_records": args.max_records,
@@ -147,9 +178,10 @@ def main() -> None:
         "max_gbif_image_fallback_species": args.max_gbif_image_fallback_species,
         "iucn_source": "IUCN Red List API v4 + cache + NO_DATA fallback",
         "max_iucn_species": args.max_iucn_species,
-        "sample_size": args.sample_size,
+        "max_iucn_species_api": limits["max_iucn_species_api"],
+        "sample_size": limits["sample_size"],
         "sample_random_state": args.sample_random_state,
-        "offline_max_species": args.offline_max_species,
+        "offline_max_species": limits["offline_max_species"],
     }
 
     print("Pipeline parameters:", parameters, flush=True)
@@ -179,10 +211,10 @@ def main() -> None:
     print("3/13 Creando features taxonómicas...", flush=True)
     features_df = create_features(clean_df)
     print(f" Registros con features base: {len(features_df):,}", flush=True)
-    if args.sample_size and args.sample_size > 0 and len(features_df) > args.sample_size:
+    if limits["sample_size"] and len(features_df) > limits["sample_size"]:
         print(" Aplicando df.sample() para desarrollo inicial...", flush=True)
         features_df = features_df.sample(
-            n=args.sample_size,
+            n=limits["sample_size"],
             random_state=args.sample_random_state,
         ).reset_index(drop=True)
         print(f" Registros tras sample: {len(features_df):,}", flush=True)
@@ -237,8 +269,8 @@ def main() -> None:
     print("8/13 Añadiendo imágenes estables al artifact...", flush=True)
     encyclopedia_df, image_enrichment_df = add_images_to_encyclopedia(
         encyclopedia_df=encyclopedia_df,
-        max_species=args.max_image_species,
-        max_gbif_fallback_species=args.max_gbif_image_fallback_species,
+        max_species=limits["max_image_species_api"],
+        max_gbif_fallback_species=limits["max_gbif_image_fallback_species_api"],
         use_api=not args.skip_image_api,
         use_wikidata=not args.skip_wikidata,
     )
@@ -252,7 +284,7 @@ def main() -> None:
     encyclopedia_df, conservation_df = add_conservation_status_to_encyclopedia(
         encyclopedia_df,
         cache_path=IUCN_STATUS_CACHE_PATH,
-        max_api_species=args.max_iucn_species if args.max_iucn_species > 0 else None,
+        max_api_species=limits["max_iucn_species_api"],
     )
     CONSERVATION_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     conservation_df.to_csv(CONSERVATION_STATUS_PATH, index=False)
@@ -279,7 +311,7 @@ def main() -> None:
     print("12/13 Exportando versión ligera offline...", flush=True)
     offline_encyclopedia_df = build_offline_encyclopedia(
         encyclopedia_df,
-        max_species=args.offline_max_species,
+        max_species=limits["offline_max_species"],
     )
     offline_points_df = build_offline_occurrence_points(occurrence_points_df)
     OFFLINE_ENCYCLOPEDIA_PATH.parent.mkdir(parents=True, exist_ok=True)
