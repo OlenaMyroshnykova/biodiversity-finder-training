@@ -19,8 +19,24 @@ on:
         description: "Maximum unique coordinate points to enrich with NASA POWER climate data"
         required: false
         default: "250"
+      offline_max_species:
+        description: "Maximum species in the lightweight offline encyclopedia"
+        required: false
+        default: "2000"
       max_vernacular_species:
-        description: "Maximum species to enrich with GBIF/Wikidata common names"
+        description: "Species to enrich with ES/EN common names. Default covers the light artifact."
+        required: false
+        default: "3000"
+      max_image_species:
+        description: "Species to enrich with image_url. Default covers the light artifact."
+        required: false
+        default: "2000"
+      max_gbif_image_fallback_species:
+        description: "Species that may use GBIF occurrence media after Wikidata image lookup fails"
+        required: false
+        default: "500"
+      max_iucn_species:
+        description: "Maximum unique species to query in IUCN Red List API v4. Use 0 for all."
         required: false
         default: "500"
       sample_size:
@@ -31,14 +47,6 @@ on:
         description: "Random state for df.sample()"
         required: false
         default: "42"
-      offline_max_species:
-        description: "Maximum species in the lightweight offline encyclopedia"
-        required: false
-        default: "2000"
-      max_iucn_species:
-        description: "Maximum unique species to query in IUCN Red List API v4. Use 0 for all, but 100-300 is safer for deadline runs."
-        required: false
-        default: "100"
       skip_climate_api:
         description: "Skip NASA POWER API and use latitude-based climate fallback only"
         required: false
@@ -57,6 +65,14 @@ on:
           - "true"
       skip_wikidata:
         description: "Skip Wikidata SPARQL/Search for common names"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      skip_image_api:
+        description: "Skip Wikidata/GBIF image enrichment and keep only existing image_url"
         required: false
         default: "false"
         type: choice
@@ -106,11 +122,13 @@ jobs:
           COMMAND="$COMMAND --max-records '${{ github.event.inputs.max_records }}'"
           COMMAND="$COMMAND --min-class-records '${{ github.event.inputs.min_class_records }}'"
           COMMAND="$COMMAND --max-climate-points '${{ github.event.inputs.max_climate_points }}'"
+          COMMAND="$COMMAND --offline-max-species '${{ github.event.inputs.offline_max_species }}'"
           COMMAND="$COMMAND --max-vernacular-species '${{ github.event.inputs.max_vernacular_species }}'"
+          COMMAND="$COMMAND --max-image-species '${{ github.event.inputs.max_image_species }}'"
+          COMMAND="$COMMAND --max-gbif-image-fallback-species '${{ github.event.inputs.max_gbif_image_fallback_species }}'"
+          COMMAND="$COMMAND --max-iucn-species '${{ github.event.inputs.max_iucn_species }}'"
           COMMAND="$COMMAND --sample-size '${{ github.event.inputs.sample_size }}'"
           COMMAND="$COMMAND --sample-random-state '${{ github.event.inputs.sample_random_state }}'"
-          COMMAND="$COMMAND --offline-max-species '${{ github.event.inputs.offline_max_species }}'"
-          COMMAND="$COMMAND --max-iucn-species '${{ github.event.inputs.max_iucn_species }}'"
           if [ "${{ github.event.inputs.skip_climate_api }}" = "true" ]; then
             COMMAND="$COMMAND --skip-climate-api"
           fi
@@ -119,6 +137,9 @@ jobs:
           fi
           if [ "${{ github.event.inputs.skip_wikidata }}" = "true" ]; then
             COMMAND="$COMMAND --skip-wikidata"
+          fi
+          if [ "${{ github.event.inputs.skip_image_api }}" = "true" ]; then
+            COMMAND="$COMMAND --skip-image-api"
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
           echo "$COMMAND"
@@ -150,6 +171,7 @@ jobs:
             data/processed/species_occurrence_points_light.parquet
             data/interim/conservation_status.csv
             data/interim/vernacular_names.csv
+            data/interim/image_metadata.csv
             data/interim/climate_reference.csv
             reports/metrics.json
             reports/classification_report.csv

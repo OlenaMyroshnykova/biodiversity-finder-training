@@ -1,4 +1,4 @@
-"""Cleaning for biodiversity occurrence data."""
+"""Limpieza de datos de biodiversidad."""
 from __future__ import annotations
 
 import pandas as pd
@@ -7,7 +7,13 @@ PROJECT_KINGDOMS = {"Animalia", "Plantae"}
 
 
 def clean_occurrences(raw_df: pd.DataFrame, min_class_records: int = 50) -> pd.DataFrame:
-    """Clean raw GBIF records and keep the project scope: animals + plants."""
+    """Limpia registros crudos de GBIF.
+
+    El scope del proyecto queda limitado a Animalia + Plantae. Fungi no se
+    elimina por ser "feo", sino porque no forma parte de la enciclopedia final
+    acordada para la defensa del proyecto.
+    """
+
     cleaned_df = raw_df.copy()
     cleaned_df = normalize_column_names(cleaned_df)
     cleaned_df = keep_required_data(cleaned_df)
@@ -16,12 +22,12 @@ def clean_occurrences(raw_df: pd.DataFrame, min_class_records: int = 50) -> pd.D
     cleaned_df = clean_dates(cleaned_df)
     cleaned_df = remove_duplicates(cleaned_df)
     cleaned_df = remove_rare_classes(cleaned_df, min_class_records)
-    cleaned_df = keep_project_scope(cleaned_df)
     return cleaned_df.reset_index(drop=True)
 
 
 def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize GBIF column names."""
+    """Normaliza nombres de columnas para trabajar de forma consistente."""
+
     return df.rename(
         columns={
             "scientificName": "scientific_name",
@@ -39,16 +45,9 @@ def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def keep_project_scope(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep only Animalia and Plantae rows."""
-    if df.empty or "kingdom" not in df.columns:
-        return df.copy()
-    kingdom = df["kingdom"].fillna("").astype(str).str.strip()
-    return df.loc[kingdom.isin(PROJECT_KINGDOMS)].copy()
-
-
 def keep_required_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove rows missing basic fields."""
+    """Elimina filas sin campos básicos."""
+
     required_columns = [
         "key",
         "scientific_name",
@@ -67,8 +66,18 @@ def keep_required_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=existing).copy()
 
 
+def keep_project_scope(df: pd.DataFrame) -> pd.DataFrame:
+    """Mantiene solo Animalia + Plantae para evitar Fungi en artifacts."""
+
+    if "kingdom" not in df.columns:
+        return df.copy()
+    kingdom = df["kingdom"].fillna("").astype(str).str.strip()
+    return df.loc[kingdom.isin(PROJECT_KINGDOMS)].copy()
+
+
 def clean_coordinates(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert coordinates to numbers and remove impossible values."""
+    """Convierte coordenadas a números y elimina valores imposibles."""
+
     result_df = df.copy()
     result_df["decimal_latitude"] = pd.to_numeric(result_df["decimal_latitude"], errors="coerce")
     result_df["decimal_longitude"] = pd.to_numeric(result_df["decimal_longitude"], errors="coerce")
@@ -79,12 +88,14 @@ def clean_coordinates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_dates(df: pd.DataFrame) -> pd.DataFrame:
-    """Clean observation year/month."""
+    """Limpia año y mes de observación."""
+
     result_df = df.copy()
     result_df["year"] = pd.to_numeric(result_df["year"], errors="coerce")
     result_df["month"] = pd.to_numeric(result_df["month"], errors="coerce")
     result_df = result_df[
-        result_df["year"].between(1900, 2100) & result_df["month"].between(1, 12)
+        result_df["year"].between(1900, 2100)
+        & result_df["month"].between(1, 12)
     ].copy()
     result_df["year"] = result_df["year"].astype(int)
     result_df["month"] = result_df["month"].astype(int)
@@ -92,7 +103,8 @@ def clean_dates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove basic occurrence duplicates."""
+    """Elimina duplicados básicos de ocurrencias."""
+
     subset_columns = [
         "scientific_name",
         "decimal_latitude",
@@ -105,7 +117,13 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def remove_rare_classes(df: pd.DataFrame, min_class_records: int) -> pd.DataFrame:
-    """Remove taxonomic classes with too few examples."""
+    """Elimina clases taxonómicas con muy pocos ejemplos.
+
+    No hay consultas ancla de especies bonitas. Si un grupo queda fuera por baja
+    presencia, se debe resolver con un plan taxonómico más amplio o con
+    df.sample()/parámetros del pipeline, no protegiendo especies concretas.
+    """
+
     if min_class_records <= 1 or "taxon_class" not in df.columns:
         return df.copy()
     class_counts = df["taxon_class"].value_counts()
