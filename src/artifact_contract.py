@@ -82,9 +82,23 @@ def ensure_artifact_contract(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_search_document(df: pd.DataFrame) -> pd.Series:
-    """Documento único para búsqueda: nombres + taxonomía + tags + conservación."""
-    document = pd.Series([""] * len(df), index=df.index, dtype=str)
+    """Documento único para búsqueda: nombres originales + versión normalizada.
+
+    La app necesita una versión normalizada para buscar rápido y sin problemas
+    de mayúsculas/acentos. Pero el artifact también debe conservar los nombres
+    científicos originales para fichas, depuración y tests de contrato.
+    Por eso guardamos ambas capas en el mismo documento:
+    1. `preserved_document`: texto original legible, sin lower().
+    2. `normalized_document`: texto normalizado para búsqueda.
+    """
+    raw_document = pd.Series([""] * len(df), index=df.index, dtype=str)
     for column in SEARCH_CONTRACT_COLUMNS:
         if column in df.columns:
-            document = document + " " + df[column].fillna("").astype(str)
-    return document.apply(normalize_text)
+            raw_document = raw_document + " " + df[column].fillna("").astype(str)
+
+    preserved_document = raw_document.apply(lambda value: " ".join(str(value or "").split()))
+    normalized_document = raw_document.apply(normalize_text)
+
+    return (preserved_document + " " + normalized_document).apply(
+        lambda value: " ".join(str(value or "").split())
+    )
