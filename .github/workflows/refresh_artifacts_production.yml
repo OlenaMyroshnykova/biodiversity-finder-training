@@ -1,0 +1,127 @@
+name: Refresh production artifacts intelligently
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_mode:
+        description: "auto, none, iucn_only, or full_base"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - none
+          - iucn_only
+          - full_base
+      max_age_days:
+        description: "How old base artifacts can be before full rebuild"
+        required: true
+        default: "7"
+      country:
+        description: "GBIF country code or GLOBAL"
+        required: true
+        default: "GLOBAL"
+      max_records:
+        description: "Max GBIF records for full rebuild"
+        required: true
+        default: "100000"
+      iucn_batch_size:
+        description: "IUCN species to add in this run"
+        required: true
+        default: "3000"
+      iucn_delay_seconds:
+        description: "Delay between IUCN API requests"
+        required: true
+        default: "0.5"
+  schedule:
+    - cron: "0 3 * * 0"
+
+jobs:
+  plan-and-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      IUCN_API_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+      IUCN_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+      HF_REPO_ID: selenamir/biodiversity-finder-artifacts
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install huggingface_hub pandas pyarrow
+
+      - name: Plan artifact refresh
+        id: plan
+        run: |
+          python scripts/plan_artifact_refresh.py \
+            --repo-id "$HF_REPO_ID" \
+            --max-age-days "${{ github.event.inputs.max_age_days || '7' }}" \
+            --force-mode "${{ github.event.inputs.force_mode || 'auto' }}"
+
+      - name: Download reusable base artifacts for IUCN-only refresh
+        if: steps.plan.outputs.refresh_mode == 'iucn_only'
+        run: |
+          python scripts/download_base_artifacts_from_hf.py --repo-id "$HF_REPO_ID" --required
+
+      - name: Run IUCN-only incremental refresh
+        if: steps.plan.outputs.refresh_mode == 'iucn_only'
+        run: |
+          python scripts/run_iucn_only_from_hf.py \
+            --repo-id "$HF_REPO_ID" \
+            --batch-size "${{ github.event.inputs.iucn_batch_size || '3000' }}" \
+            --delay-seconds "${{ github.event.inputs.iucn_delay_seconds || '0.5' }}" \
+            --checkpoint-every 250 \
+            --light-size 10000 \
+            --publish-cache
+
+      - name: Run full clean-first rebuild
+        if: steps.plan.outputs.refresh_mode == 'full_base'
+        run: |
+          python scripts/run_pipeline_clean_then_iucn.py \
+            --country "${{ github.event.inputs.country || 'GLOBAL' }}" \
+            --max-records "${{ github.event.inputs.max_records || '100000' }}" \
+            --offline-max-species 10000 \
+            --max-vernacular-species 15000 \
+            --max-image-species 15000 \
+            --max-gbif-image-fallback-species 3000 \
+            --iucn-batch-size "${{ github.event.inputs.iucn_batch_size || '3000' }}" \
+            --iucn-delay-seconds "${{ github.event.inputs.iucn_delay_seconds || '0.5' }}" \
+            --iucn-checkpoint-every 250 \
+            --resume-iucn-cache-from-hf \
+            --publish-iucn-cache-to-hf
+
+      - name: Skip refresh
+        if: steps.plan.outputs.refresh_mode == 'none'
+        run: |
+          echo "Artifacts are fresh. No refresh needed."
+
+      - name: Build artifact manifest
+        if: steps.plan.outputs.refresh_mode != 'none'
+        run: |
+          python scripts/build_artifact_manifest.py --copy-to-processed --pipeline-name production-artifact-refresh
+
+      - name: Publish artifacts to Hugging Face
+        if: steps.plan.outputs.refresh_mode != 'none'
+        run: |
+          python scripts/publish_to_huggingface.py
+
+      - name: Upload workflow artifact backup
+        if: always() && steps.plan.outputs.refresh_mode != 'none'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-refresh-artifacts
+          path: |
+            data/processed/
+            data/interim/
+            reports/
+          if-no-files-found: warn
