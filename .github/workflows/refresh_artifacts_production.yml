@@ -1,5 +1,9 @@
 name: Refresh production artifacts intelligently
 
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
 on:
   workflow_dispatch:
     inputs:
