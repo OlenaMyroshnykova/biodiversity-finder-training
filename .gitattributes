@@ -1,0 +1,26 @@
+# Normalize text files in repository
+* text=auto
+
+# Keep code and config files with LF
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.csv text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.sh text eol=lf
+
+# Binary / data artifacts
+*.parquet binary
+*.joblib binary
+*.pkl binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.pdf binary
+*.zip binary
