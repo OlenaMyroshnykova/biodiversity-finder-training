@@ -1,0 +1,145 @@
+name: Train full encyclopedia clean-first IUCN
+
+on:
+  workflow_dispatch:
+    inputs:
+      country:
+        description: "GLOBAL or GBIF country code"
+        required: true
+        default: "GLOBAL"
+      max_records:
+        description: "Maximum GBIF occurrence records"
+        required: true
+        default: "100000"
+      offline_max_species:
+        description: "Maximum species in light/offline encyclopedia"
+        required: true
+        default: "10000"
+      max_vernacular_species:
+        description: "Maximum species for common-name enrichment"
+        required: true
+        default: "15000"
+      max_image_species:
+        description: "Maximum species for Wikidata/Wikipedia image enrichment"
+        required: true
+        default: "15000"
+      max_gbif_image_fallback_species:
+        description: "Maximum species for GBIF media fallback"
+        required: true
+        default: "3000"
+      iucn_batch_size:
+        description: "How many clean canonical species to query in this run"
+        required: true
+        default: "3000"
+      iucn_delay_seconds:
+        description: "Delay between IUCN API requests"
+        required: true
+        default: "0.5"
+      iucn_checkpoint_every:
+        description: "Save/upload IUCN cache every N requests"
+        required: true
+        default: "250"
+      iucn_candidate_limit:
+        description: "Optional cap for clean IUCN candidates. Use 0 for all candidates."
+        required: true
+        default: "0"
+      resume_iucn_cache_from_hf:
+        description: "Download checkpoints/iucn_status_cache.csv from HF before lookup"
+        type: boolean
+        required: true
+        default: true
+      publish_iucn_cache_to_hf:
+        description: "Upload checkpoints/iucn_status_cache.csv to HF during/after lookup"
+        type: boolean
+        required: true
+        default: true
+      skip_climate_api:
+        description: "Skip NASA POWER API"
+        type: boolean
+        required: true
+        default: false
+      skip_vernacular_api:
+        description: "Skip common-name APIs"
+        type: boolean
+        required: true
+        default: false
+      skip_wikidata:
+        description: "Skip Wikidata lookups"
+        type: boolean
+        required: true
+        default: false
+      skip_image_api:
+        description: "Skip image APIs"
+        type: boolean
+        required: true
+        default: false
+
+jobs:
+  train-full-clean-iucn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Train clean-first incremental IUCN pipeline
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          IUCN_API_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+          IUCN_TOKEN: ${{ secrets.IUCN_API_TOKEN }}
+        run: |
+          ARGS=(
+            --country "${{ inputs.country }}"
+            --max-records "${{ inputs.max_records }}"
+            --offline-max-species "${{ inputs.offline_max_species }}"
+            --max-vernacular-species "${{ inputs.max_vernacular_species }}"
+            --max-image-species "${{ inputs.max_image_species }}"
+            --max-gbif-image-fallback-species "${{ inputs.max_gbif_image_fallback_species }}"
+            --iucn-batch-size "${{ inputs.iucn_batch_size }}"
+            --iucn-delay-seconds "${{ inputs.iucn_delay_seconds }}"
+            --iucn-checkpoint-every "${{ inputs.iucn_checkpoint_every }}"
+            --iucn-candidate-limit "${{ inputs.iucn_candidate_limit }}"
+          )
+          if [ "${{ inputs.resume_iucn_cache_from_hf }}" = "true" ]; then ARGS+=(--resume-iucn-cache-from-hf); fi
+          if [ "${{ inputs.publish_iucn_cache_to_hf }}" = "true" ]; then ARGS+=(--publish-iucn-cache-to-hf); fi
+          if [ "${{ inputs.skip_climate_api }}" = "true" ]; then ARGS+=(--skip-climate-api); fi
+          if [ "${{ inputs.skip_vernacular_api }}" = "true" ]; then ARGS+=(--skip-vernacular-api); fi
+          if [ "${{ inputs.skip_wikidata }}" = "true" ]; then ARGS+=(--skip-wikidata); fi
+          if [ "${{ inputs.skip_image_api }}" = "true" ]; then ARGS+=(--skip-image-api); fi
+          python scripts/run_pipeline_clean_then_iucn.py "${ARGS[@]}"
+
+      - name: Upload processed artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: biodiversity-clean-first-iucn-artifacts
+          path: |
+            data/processed/*.parquet
+            data/interim/*.csv
+            data/interim/*.parquet
+            reports/**/*.csv
+            reports/**/*.json
+          if-no-files-found: warn
+
+      - name: Publish final artifacts to Hugging Face
+        if: ${{ env.HF_TOKEN != '' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/publish_to_huggingface.py
