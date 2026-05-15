@@ -1,8 +1,8 @@
 """Image enrichment for the final species encyclopedia.
 
-The training repository prepares stable image fields in the artifact. The app should
-only consume image_url/image_source and should not need fragile per-card live lookups
-for the normal demo flow.
+The training repository prepares stable image fields in the artifact. The app
+should consume only validated ``image_url`` values and should not need fragile
+per-card live lookups for the normal demo flow.
 """
 from __future__ import annotations
 
@@ -18,9 +18,18 @@ from src.media_validation import clean_media_url, is_valid_image_url, validate_m
 WIKIDATA_SEARCH_URL = "https://www.wikidata.org/w/api.php"
 WIKIDATA_ENTITY_URL = "https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
 GBIF_OCCURRENCE_SEARCH_URL = "https://api.gbif.org/v1/occurrence/search"
-REQUEST_HEADERS = {
-    "User-Agent": "BiodiversityFinder/1.0 educational project image enrichment"
-}
+REQUEST_HEADERS = {"User-Agent": "BiodiversityFinder/1.0 educational project image enrichment"}
+
+IMAGE_URL_COLUMNS = [
+    "image_url",
+    "thumbnail_url",
+    "media_url",
+    "identifier",
+    "references",
+    "source",
+    "file",
+    "url",
+]
 
 
 @dataclass(frozen=True)
@@ -45,7 +54,7 @@ def add_images_to_encyclopedia(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Add stable, validated image_url/image_source columns to the artifact."""
     if encyclopedia_df.empty:
-        empty = encyclopedia_df.copy()
+        empty = ensure_image_columns(encyclopedia_df)
         return empty, pd.DataFrame(
             columns=[
                 "scientific_name", "image_url", "image_source", "unverified_media_url",
@@ -53,13 +62,7 @@ def add_images_to_encyclopedia(
             ]
         )
 
-    result_df = encyclopedia_df.copy()
-    if "image_url" not in result_df.columns:
-        result_df["image_url"] = ""
-    if "image_source" not in result_df.columns:
-        result_df["image_source"] = "No image"
-
-    result_df = validate_image_columns(result_df)
+    result_df = ensure_image_columns(encyclopedia_df)
 
     if use_api:
         missing_df = (
@@ -76,7 +79,7 @@ def add_images_to_encyclopedia(
                     image_map[scientific_name] = (url, "Wikidata Commons P18")
                 time.sleep(pause_seconds)
         result_df = apply_image_map(result_df, image_map)
-        result_df = validate_image_columns(result_df)
+        result_df = ensure_image_columns(result_df)
 
         still_missing_df = (
             result_df.loc[~result_df["has_image"], ["scientific_name"]]
@@ -91,7 +94,7 @@ def add_images_to_encyclopedia(
                 gbif_map[scientific_name] = (url, "GBIF occurrence media fallback")
             time.sleep(pause_seconds)
         result_df = apply_image_map(result_df, gbif_map)
-        result_df = validate_image_columns(result_df)
+        result_df = ensure_image_columns(result_df)
 
     records = [
         ImageRecord(
@@ -108,23 +111,54 @@ def add_images_to_encyclopedia(
     return result_df, pd.DataFrame([record.__dict__ for record in records])
 
 
-def validate_image_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize image diagnostics and keep only renderable images in image_url."""
+def ensure_image_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure image diagnostics exist and keep only render-safe images in image_url.
+
+    Any audio/video/document/unknown URL is removed from ``image_url`` and kept in
+    ``unverified_media_url`` for audit/debugging.
+    """
     result_df = df.copy()
-    diagnostics = result_df["image_url"].apply(validate_media_url)
-    result_df["image_url"] = diagnostics.apply(lambda item: item.image_url)
-    result_df["unverified_media_url"] = diagnostics.apply(lambda item: item.unverified_media_url)
-    result_df["media_type"] = diagnostics.apply(lambda item: item.media_type)
-    result_df["image_validation_status"] = diagnostics.apply(lambda item: item.image_validation_status)
-    result_df["has_image"] = diagnostics.apply(lambda item: item.has_image).astype(bool)
+    for column in ["image_url", "image_source", "unverified_media_url", "media_type", "image_validation_status"]:
+        if column not in result_df.columns:
+            result_df[column] = ""
+
+    validated_rows = result_df["image_url"].apply(validate_media_url)
+    result_df["image_url"] = validated_rows.apply(lambda decision: decision.image_url)
+    result_df["media_type"] = validated_rows.apply(lambda decision: decision.media_type)
+    result_df["image_validation_status"] = validated_rows.apply(lambda decision: decision.image_validation_status)
+    result_df["has_image"] = validated_rows.apply(lambda decision: bool(decision.has_image)).astype(bool)
+
+    # Preserve explicit unverified_media_url when it already exists; otherwise
+    # store the suspicious URL that was removed from image_url.
+    extracted_unverified = validated_rows.apply(lambda decision: decision.unverified_media_url)
+    existing_unverified = result_df["unverified_media_url"].astype(str).fillna("").str.strip()
+    result_df["unverified_media_url"] = existing_unverified.where(existing_unverified != "", extracted_unverified)
+
+    result_df.loc[result_df["has_image"] & (result_df["image_source"].astype(str).str.strip() == ""), "image_source"] = "Existing image"
     result_df.loc[~result_df["has_image"], "image_source"] = "No valid image"
     return result_df
+
+
+def validate_image_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Backward-compatible alias for ensure_image_columns."""
+    return ensure_image_columns(df)
+
+
+def first_valid_existing_image_url(row: pd.Series) -> str:
+    """Return the first valid still-image URL already present in a row."""
+    for column in IMAGE_URL_COLUMNS:
+        if column not in row.index:
+            continue
+        value = clean_url(row.get(column, ""))
+        if is_valid_image_url(value):
+            return value
+    return ""
 
 
 def apply_image_map(df: pd.DataFrame, image_map: dict[str, tuple[str, str]]) -> pd.DataFrame:
     if not image_map:
         return df
-    result_df = df.copy()
+    result_df = ensure_image_columns(df)
     for scientific_name, (url, source) in image_map.items():
         validation = validate_media_url(url)
         mask = result_df["scientific_name"].astype(str) == scientific_name
@@ -150,21 +184,12 @@ def find_wikidata_commons_image(scientific_name: str) -> str:
     if not qid:
         return ""
     try:
-        response = requests.get(
-            WIKIDATA_ENTITY_URL.format(qid=qid),
-            headers=REQUEST_HEADERS,
-            timeout=15,
-        )
+        response = requests.get(WIKIDATA_ENTITY_URL.format(qid=qid), headers=REQUEST_HEADERS, timeout=15)
         response.raise_for_status()
         entity = response.json().get("entities", {}).get(qid, {})
         claims = entity.get("claims", {})
-        p18_claims = claims.get("P18", [])
-        for claim in p18_claims:
-            filename = (
-                claim.get("mainsnak", {})
-                .get("datavalue", {})
-                .get("value", "")
-            )
+        for claim in claims.get("P18", []):
+            filename = claim.get("mainsnak", {}).get("datavalue", {}).get("value", "")
             url = commons_file_url(filename)
             if is_valid_image_url(url):
                 return url
